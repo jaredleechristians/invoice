@@ -3,12 +3,31 @@ const cors = require("cors");
 const multer = require("multer");
 
 const PORT = Number(process.env.PORT || 8787);
-const GOTENBERG_URL =
-  process.env.GOTENBERG_URL ||
-  "https://gotenberg.robotweb.dev/forms/chromium/convert/html";
-const WEBUI_URL = process.env.WEBUI_URL || "https://webui.robotweb.dev";
-const WEBUI_MODEL = process.env.WEBUI_MODEL || "openrouter/free";
-const WEBUI_API_KEY = process.env.WEBUI_API_KEY || "";
+
+// Loaded from .env via Docker Compose:
+// OPENAI_API_KEY, OPENAI_API_HOSTNAME, GOTENBERG_HOSTNAME
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_API_HOSTNAME = (
+  process.env.OPENAI_API_HOSTNAME || ""
+).replace(/\/+$/, "");
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "openrouter/free";
+
+const GOTENBERG_HOSTNAME = (
+  process.env.GOTENBERG_HOSTNAME || ""
+).replace(/\/+$/, "");
+
+if (!GOTENBERG_HOSTNAME) {
+  console.warn("GOTENBERG_HOSTNAME is not set");
+}
+if (!OPENAI_API_HOSTNAME) {
+  console.warn("OPENAI_API_HOSTNAME is not set");
+}
+if (!OPENAI_API_KEY) {
+  console.warn("OPENAI_API_KEY is not set");
+}
+
+const GOTENBERG_CONVERT_URL = `${GOTENBERG_HOSTNAME}/forms/chromium/convert/html`;
+const OPENAI_CHAT_URL = `${OPENAI_API_HOSTNAME}/api/chat/completions`;
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -31,10 +50,10 @@ app.use((_req, res, next) => {
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
-    gotenberg: GOTENBERG_URL,
-    webui: WEBUI_URL,
-    model: WEBUI_MODEL,
-    webuiAuthConfigured: Boolean(WEBUI_API_KEY),
+    gotenbergHostname: GOTENBERG_HOSTNAME,
+    openaiApiHostname: OPENAI_API_HOSTNAME,
+    model: OPENAI_MODEL,
+    openaiAuthConfigured: Boolean(OPENAI_API_KEY),
   });
 });
 
@@ -64,7 +83,7 @@ app.post("/api/pdf", upload.any(), async (req, res) => {
       if (req.body?.[key] != null) form.append(key, String(req.body[key]));
     }
 
-    const upstream = await fetch(GOTENBERG_URL, {
+    const upstream = await fetch(GOTENBERG_CONVERT_URL, {
       method: "POST",
       body: form,
       headers: { "User-Agent": BROWSER_UA },
@@ -121,7 +140,7 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "messages array is required" });
     }
 
-    const apiKey = WEBUI_API_KEY || req.headers["x-webui-api-key"] || "";
+    const apiKey = OPENAI_API_KEY || "";
     const headers = {
       "Content-Type": "application/json",
       Accept: "application/json",
@@ -130,7 +149,7 @@ app.post("/api/chat", async (req, res) => {
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
     const payload = {
-      model: WEBUI_MODEL,
+      model: OPENAI_MODEL,
       stream: false,
       messages: [
         {
@@ -147,7 +166,7 @@ app.post("/api/chat", async (req, res) => {
       ],
     };
 
-    const upstream = await fetch(`${WEBUI_URL}/api/chat/completions`, {
+    const upstream = await fetch(OPENAI_CHAT_URL, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -159,14 +178,14 @@ app.post("/api/chat", async (req, res) => {
       return res
         .status(upstream.status)
         .type("application/json")
-        .send(text || JSON.stringify({ error: `Open WebUI HTTP ${upstream.status}` }));
+        .send(text || JSON.stringify({ error: `OpenAI HTTP ${upstream.status}` }));
     }
 
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      return res.status(502).json({ error: "Invalid JSON from Open WebUI", raw: text });
+      return res.status(502).json({ error: "Invalid JSON from OpenAI API", raw: text });
     }
 
     const content =
@@ -174,17 +193,17 @@ app.post("/api/chat", async (req, res) => {
 
     res.json({
       content,
-      model: data.model || WEBUI_MODEL,
+      model: data.model || OPENAI_MODEL,
       raw: data,
     });
   } catch (err) {
     console.error("Chat proxy error:", err);
-    res.status(502).json({ error: `Open WebUI proxy error: ${err.message}` });
+    res.status(502).json({ error: `OpenAI proxy error: ${err.message}` });
   }
 });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`API          http://0.0.0.0:${PORT}/`);
-  console.log(`PDF proxy    POST /api/pdf → ${GOTENBERG_URL}`);
-  console.log(`Chat proxy   POST /api/chat → ${WEBUI_URL} (${WEBUI_MODEL})`);
+  console.log(`PDF proxy    POST /api/pdf → ${GOTENBERG_CONVERT_URL}`);
+  console.log(`Chat proxy   POST /api/chat → ${OPENAI_CHAT_URL} (${OPENAI_MODEL})`);
 });

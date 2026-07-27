@@ -25,11 +25,7 @@ export default defineNuxtConfig({
     },
   },
   runtimeConfig: {
-    apiProxy:
-      process.env.NUXT_API_PROXY || "http://127.0.0.1:8787",
-    public: {
-      webuiModel: process.env.NUXT_PUBLIC_WEBUI_MODEL || "openrouter/free",
-    },
+    apiProxy: process.env.NUXT_API_PROXY || "http://127.0.0.1:8787",
   },
   nitro: {
     routeRules: {

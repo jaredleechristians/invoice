@@ -3,12 +3,14 @@ services:
     build: ./backend
     ports:
       - "8787:8787"
+    env_file:
+      - .env
     environment:
       PORT: "8787"
-      GOTENBERG_URL: ${GOTENBERG_URL:-https://gotenberg.robotweb.dev/forms/chromium/convert/html}
-      WEBUI_URL: ${WEBUI_URL:-https://webui.robotweb.dev}
-      WEBUI_MODEL: ${WEBUI_MODEL:-openrouter/free}
-      WEBUI_API_KEY: ${WEBUI_API_KEY:-}
+      GOTENBERG_HOSTNAME: ${GOTENBERG_HOSTNAME}
+      OPENAI_API_HOSTNAME: ${OPENAI_API_HOSTNAME}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-openrouter/free}
     restart: unless-stopped
 
   web:
@@ -22,7 +24,6 @@ services:
       HOST: "0.0.0.0"
       PORT: "3000"
       NUXT_API_PROXY: http://api:8787
-      NUXT_PUBLIC_WEBUI_MODEL: ${WEBUI_MODEL:-openrouter/free}
     depends_on:
       - api
     restart: unless-stopped
