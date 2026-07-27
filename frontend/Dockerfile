@@ -9,7 +9,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ARG NUXT_API_PROXY=http://api:8787
 ENV NUXT_API_PROXY=$NUXT_API_PROXY
-ENV NUXT_PUBLIC_WEBUI_MODEL=openrouter/free
 RUN npm run build
 
 FROM node:22-alpine AS runner
