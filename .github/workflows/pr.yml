@@ -23,7 +23,7 @@ jobs:
       bumped: ${{ steps.final.outputs.bumped }}
     steps:
       - name: Checkout PR branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
@@ -71,15 +71,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -92,6 +92,12 @@ jobs:
         run: npm run build
         env:
           NUXT_API_PROXY: http://127.0.0.1:8787
+
+      - name: Verify frontend build output
+        run: |
+          test -d frontend/.output
+          ls -la frontend/.output
+          du -sh frontend/.output
 
       - name: Install backend dependencies
         working-directory: backend
@@ -127,14 +133,15 @@ jobs:
           cache-to: type=gha,mode=max,scope=web
 
       - name: Upload frontend build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: invoice-web-${{ needs.version-bump.outputs.version }}
           path: frontend/.output
+          include-hidden-files: true
           if-no-files-found: error
 
       - name: Upload backend package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: invoice-api-${{ needs.version-bump.outputs.version }}
           path: |
