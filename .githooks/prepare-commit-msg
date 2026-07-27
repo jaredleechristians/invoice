@@ -1,0 +1,7 @@
+#!/bin/sh
+# Strip Cursor attribution trailers that may be injected into commit messages.
+msg_file="$1"
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+tmp=$(mktemp)
+grep -v -E -i '(^Co-authored-by:.*Cursor|^Made-with:[[:space:]]*Cursor)' "$msg_file" > "$tmp" || true
+mv "$tmp" "$msg_file"
