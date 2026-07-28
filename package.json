@@ -1,6 +1,6 @@
 {
   "name": "invoice",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "South African invoice editor (Nuxt + Express)",
   "scripts": {
