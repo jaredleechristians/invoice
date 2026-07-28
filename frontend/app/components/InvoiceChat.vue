@@ -14,7 +14,7 @@ const history = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const bubbles = ref<ChatBubble[]>([
   {
     role: 'system',
-    content: 'Ask me to update bill to, line items, notes, banking, or dates.',
+    content: 'Try “Create an invoice for …” or ask me to update bill to, line items, notes, banking, or dates. Unsaved form edits are kept unless you ask to change them.',
   },
 ])
 
@@ -43,12 +43,15 @@ async function sendMessage() {
   scrollToBottom()
 
   try {
+    // Snapshot what the model sees so we only apply fields it actually changed.
+    const sentInvoice = cloneInvoice(invoice.value)
+
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: history.value,
-        invoice: invoice.value,
+        invoice: sentInvoice,
       }),
     })
 
@@ -57,14 +60,24 @@ async function sendMessage() {
       throw new Error(data?.error || data?.detail || `HTTP ${res.status}`)
     }
 
-    const parsed = parseAssistantPayload(String(data.content || ''))
-    if (parsed.invoice) {
-      applyInvoice(parsed.invoice)
+    // Prefer structured fields from the API; fall back to parsing raw content.
+    let message = typeof data.message === 'string' ? data.message.trim() : ''
+    let nextInvoice = data.invoice && typeof data.invoice === 'object' ? data.invoice : null
+
+    if (!message || !nextInvoice) {
+      const parsed = parseAssistantPayload(String(data.content || ''))
+      if (!message) message = parsed.message
+      if (!nextInvoice) nextInvoice = parsed.invoice
     }
 
-    const reply = parsed.message || 'Done.'
+    if (nextInvoice) {
+      applyInvoice(nextInvoice, sentInvoice)
+    }
+
+    const reply = message || (nextInvoice ? 'Invoice updated.' : 'Done.')
     bubbles.value.push({ role: 'assistant', content: reply })
-    history.value.push({ role: 'assistant', content: String(data.content || reply) })
+    // Keep history as the short reply so later turns don't re-feed giant JSON.
+    history.value.push({ role: 'assistant', content: reply })
   } catch (err: any) {
     bubbles.value.push({
       role: 'error',

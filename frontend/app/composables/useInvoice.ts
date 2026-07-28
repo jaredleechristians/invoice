@@ -1,12 +1,15 @@
 import {
   DEFAULT_INVOICE,
   STORAGE_KEY,
+  cloneInvoice,
+  mergeInvoice,
+  diffInvoicePatch,
   normalizeInvoice,
   type Invoice,
 } from '~/utils/invoice'
 
 export function useInvoice() {
-  const invoice = useState<Invoice>('invoice', () => structuredClone(DEFAULT_INVOICE))
+  const invoice = useState<Invoice>('invoice', () => cloneInvoice(DEFAULT_INVOICE))
   const hydrated = useState('invoice-hydrated', () => false)
   const savedFlash = useState('invoice-saved-flash', () => false)
 
@@ -16,7 +19,7 @@ export function useInvoice() {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) invoice.value = normalizeInvoice(JSON.parse(raw))
     } catch {
-      invoice.value = structuredClone(DEFAULT_INVOICE)
+      invoice.value = cloneInvoice(DEFAULT_INVOICE)
     } finally {
       hydrated.value = true
     }
@@ -31,8 +34,11 @@ export function useInvoice() {
     }, 1500)
   }
 
-  function applyInvoice(next: Invoice) {
-    invoice.value = normalizeInvoice(next)
+  function applyInvoice(patch: Partial<Invoice>, sent?: Invoice) {
+    const effective = sent ? diffInvoicePatch(patch, sent) : patch
+    if (!effective) return
+    // Merge onto the live form so omitted agent fields don't reset unsaved edits.
+    invoice.value = mergeInvoice(invoice.value, effective)
   }
 
   function addLineItem() {
