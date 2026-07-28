@@ -343,6 +343,7 @@ tbody td:first-child {
   grid-template-columns: 1.4fr 1fr;
   gap: 2rem;
   margin-top: 2.5rem;
+  margin-bottom: 2.75rem;
   padding-top: 1.75rem;
   border-top: 1px solid var(--line);
 }
@@ -383,7 +384,6 @@ tbody td:first-child {
 }
 
 .legal {
-  margin-top: 1.75rem;
   font-size: 0.6875rem;
   color: #8a93a6;
   text-align: center;
@@ -406,6 +406,10 @@ tbody td:first-child {
   outline: none;
   resize: none;
   transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.field.legal {
+  margin: 2.75rem -0.25rem 0;
 }
 
 .field:hover {
@@ -486,6 +490,14 @@ tbody td:first-child {
 .chat-header h2 {
   font-size: 0.9375rem;
   font-weight: 700;
+  margin: 0;
+}
+
+.chat-subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .chat-close {
@@ -556,6 +568,46 @@ tbody td:first-child {
   background: #fdecea;
   color: var(--danger);
   border: 1px solid #f5c2c0;
+}
+
+.chat-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem 0;
+  border-top: 1px solid var(--line);
+  background: var(--white);
+}
+
+.chat-step {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1.25;
+}
+
+.chat-step:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chat-step.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+}
+
+.chat-step:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .chat-composer {

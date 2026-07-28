@@ -103,6 +103,7 @@ tbody td:last-child { padding-right: 1rem; }
   grid-template-columns: 1.4fr 1fr;
   gap: 2rem;
   margin-top: 2.5rem;
+  margin-bottom: 2.75rem;
   padding-top: 1.75rem;
   border-top: 1px solid var(--line);
 }
@@ -125,7 +126,7 @@ tbody td:last-child { padding-right: 1rem; }
 .bank-details dt { color: var(--muted); }
 .bank-details dd { font-weight: 500; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.75rem; }
 .legal {
-  margin-top: 1.75rem;
+  margin-top: 0;
   font-size: 0.6875rem;
   color: #8a93a6;
   text-align: center;
