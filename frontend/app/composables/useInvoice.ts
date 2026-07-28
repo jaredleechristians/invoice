@@ -36,9 +36,10 @@ export function useInvoice() {
 
   function applyInvoice(patch: Partial<Invoice>, sent?: Invoice) {
     const effective = sent ? diffInvoicePatch(patch, sent) : patch
-    if (!effective) return
+    if (!effective) return false
     // Merge onto the live form so omitted agent fields don't reset unsaved edits.
     invoice.value = mergeInvoice(invoice.value, effective)
+    return true
   }
 
   function addLineItem() {

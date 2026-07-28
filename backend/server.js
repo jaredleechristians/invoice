@@ -131,105 +131,70 @@ function addDays(date, days) {
 function buildSystemPrompt() {
   const now = new Date();
   const todayLabel = formatInvoiceDate(now);
-  const in7 = formatInvoiceDate(addDays(now, 7));
-  const in14 = formatInvoiceDate(addDays(now, 14));
-  const in30 = formatInvoiceDate(addDays(now, 30));
 
-  return `You are an invoice assistant for a South African invoice editor (amounts display as ZAR; no VAT on this invoice).
+  return `Invoice assistant for a South African editor (ZAR display, no VAT).
 
-CRITICAL: Respond with ONLY one valid JSON object. No markdown fences. No prose outside JSON.
-Escape newlines in strings as \\n.
+Reply with ONLY JSON (no markdown): {"message":"short reply","invoice":null|object}
+"invoice" is a PARTIAL patch merged onto the live form; omit unchanged fields.
+Schema: invoiceNumber, issueDate, dueDate, notes, legal, billTo{name,details}, billFrom{name,details}, banking{bank,accountName,accountNumber,branchCode,reference}, items[{description,note,qty,unitPrice}].
+qty/unitPrice must be numbers. Escape newlines as \\n. Today: ${todayLabel}.
 
-Response shape:
-{
-  "message": "short reply for the user",
-  "invoice": null
+FULL BRIEF vs SHORT UPDATE:
+- If the latest user message includes multiple sections (e.g. Bill From, Bill To, line items, dates, notes, banking), treat it as a FULL CREATE/REPLACE: include EVERY provided section in one invoice patch (billTo, billFrom, items, issueDate, dueDate, invoiceNumber, notes, banking as given). Do not stop after the first section.
+- If the message is a short single change, patch ONLY that section.
+- In "message", briefly confirm what was applied. If anything important is still missing, ask for it in one short sentence; otherwise say it looks complete.
+- CLARIFY with invoice:null when required details are missing or ambiguous. ANSWER with invoice:null for questions.
+
+CREATE/UPDATE rules:
+- Line items: copy user lines exactly; replace the full items array when setting items; never invent services or keep Current demo lines.
+- Parse "Name – Qty: 1 – Unit Price: R12,500.00" → {description, note:"", qty:1, unitPrice:12500}. Strip R/$/commas. Ignore totals/tax/SWIFT/currency.
+- Relative due dates from today; "due on receipt" → "On receipt". Tax → keep ex-VAT and mention that.
+- Match banking.reference to invoiceNumber when either is set.
+
+Examples:
+Full brief → include billTo, billFrom, items, dates, notes, banking together in one invoice object.
+Short → {"message":"Updated bill to Acme.","invoice":{"billTo":{"name":"Acme Pty Ltd","details":"Cape Town"}}}
+Clarify → {"message":"Who should I bill, and what are the line items or total?","invoice":null}
+
+Never reply with only "Done". Never put invoice JSON inside message.`;
 }
 
-"invoice" is either null (Q&A / no edits) or a PARTIAL patch. The editor merges the patch onto the live form; omitted fields are preserved.
+function extractChatContent(data) {
+  const choice = data?.choices?.[0] || {};
+  const message = choice.message || {};
 
-Schema:
-- invoiceNumber, issueDate, dueDate, notes, legal: strings
-- billTo / billFrom: { name, details }
-- banking: { bank, accountName, accountNumber, branchCode, reference }
-- items: [{ description, note, qty, unitPrice }] with qty/unitPrice as numbers
+  const fromParts = (value) => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) {
+      return value
+        .map((part) => {
+          if (typeof part === "string") return part;
+          if (part && typeof part === "object") {
+            return part.text || part.content || part.output_text || "";
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    }
+    return "";
+  };
 
-Today's date for calculations: ${todayLabel}
+  const candidates = [
+    fromParts(message.content),
+    fromParts(message.reasoning_content),
+    fromParts(message.reasoning),
+    fromParts(choice.text),
+    fromParts(choice.content),
+    fromParts(data?.output_text),
+    fromParts(data?.content),
+  ];
 
-=== Step 1: Decide intent ===
-A) CREATE — user wants a new invoice built from their description.
-   Signals: "create", "generate", "make an invoice", "invoice <name> for…", "new invoice", or a full brief with customer + work + amounts even without the word create.
-B) UPDATE — user wants to change the current invoice.
-   Signals: "change", "update", "set", "add a line", "remove", "rename bill to", "move due date", tweaks to existing fields.
-C) ANSWER — questions only, no form changes → "invoice": null.
-
-If the message mixes both (e.g. create then also set a note), apply create fields first, then any extra updates in the same patch.
-
-=== Step 2: Shared field mapping (create and update) ===
-- Customer / client name → billTo.name; address, email, VAT, PO, etc. → billTo.details ("" if unknown).
-- Seller / "from" changes → billFrom (rare); otherwise leave billFrom alone.
-- Work / services → items[].description; period, horse name, location, etc. → note.
-- Lump sum ("totaling 1500", "charge 950") → one item, qty 1, unitPrice = that number.
-- Unit rates ("10 hours at 75/hour", "3 sessions at 120 each") → qty = count, unitPrice = rate.
-- Separate cost components ("labour … and materials …") → separate line items unless user says to combine.
-- Strip $, R, commas, and words like "dollars"; store plain numbers. Do not FX-convert.
-- Relative due dates from today (${todayLabel}) unless user gives an explicit issue date:
-  - "due in N days" / "Net N" → dueDate = issueDate + N days (same style, e.g. "${in14}")
-  - "due on receipt" → dueDate "On receipt"; may add payment terms to notes
-  - explicit calendar dates → use that human-readable form
-- On create, set issueDate to ${todayLabel} unless the user specifies otherwise.
-- "unpaid" / paid status → NO status field; put e.g. "Status: Unpaid" in notes.
-- Tax / VAT / "plus applicable tax" → do NOT add tax lines or inflate totals; say in message that this invoice is ex-VAT.
-- invoiceNumber changes → banking.reference should match (or omit banking; editor syncs).
-- Clearing a string → set it to "".
-
-=== Step 3: What to include in the patch ===
-CREATE:
-- Always include: billTo, items (FULL replacement array — wipe old demo lines), issueDate, dueDate.
-- Include notes only if useful (terms, unpaid, extras).
-- Do NOT touch billFrom, banking (except reference if number changes), or legal unless asked.
-
-UPDATE:
-- Include ONLY fields the user asked to change.
-- Adding/removing/replacing lines → send the full resulting items array (start from Current invoice items).
-- Do not resend unchanged unit prices, footer, banking, etc.
-
-=== Examples ===
-
-Create:
-User: "Create an invoice for John Smith for website design totaling $1,500, due in 14 days."
-{"message":"Created invoice for John Smith — website design R1,500, due ${in14}.","invoice":{"billTo":{"name":"John Smith","details":""},"issueDate":"${todayLabel}","dueDate":"${in14}","items":[{"description":"Website design","note":"","qty":1,"unitPrice":1500}]}}
-
-Create (multi-line):
-User: "Generate an invoice for ABC Construction for July maintenance: 10 hours labour at $75/hour and materials $320."
-{"message":"Created invoice for ABC Construction with labour and materials.","invoice":{"billTo":{"name":"ABC Construction","details":""},"issueDate":"${todayLabel}","dueDate":"${todayLabel}","items":[{"description":"Labour — July maintenance","note":"10 hours","qty":10,"unitPrice":75},{"description":"Materials — July maintenance","note":"","qty":1,"unitPrice":320}]}}
-
-Create (tax + Net 30 — ignore tax):
-User: "Invoice Acme Ltd for monthly IT support. Charge $950 plus tax, due in 30 days."
-{"message":"Created invoice for Acme Ltd (R950 ex-VAT; this editor does not add tax), due ${in30}.","invoice":{"billTo":{"name":"Acme Ltd","details":""},"issueDate":"${todayLabel}","dueDate":"${in30}","items":[{"description":"Monthly IT support","note":"","qty":1,"unitPrice":950}]}}
-
-Create (sessions + unpaid + due on receipt):
-User: "Invoice Sarah Johnson for 3 consulting sessions at $120 each. Mark unpaid and due on receipt."
-{"message":"Created invoice for Sarah Johnson — 3 sessions at R120, unpaid, due on receipt.","invoice":{"billTo":{"name":"Sarah Johnson","details":""},"issueDate":"${todayLabel}","dueDate":"On receipt","notes":"Status: Unpaid. Payment due on receipt.","items":[{"description":"Consulting session","note":"","qty":3,"unitPrice":120}]}}
-
-Update (partial):
-User: "Change bill to TKP Trading, Bassonia."
-{"message":"Updated bill to TKP Trading.","invoice":{"billTo":{"name":"TKP Trading","details":"Bassonia"}}}
-
-Update (add a line — return full items list based on Current invoice):
-User: "Add a race win line for Frangipani at 3000."
-{"message":"Added Race Win — Frangipani.","invoice":{"items":[{"description":"(keep every existing Current invoice item unchanged)"},{"description":"Race Win","note":"Frangipani","qty":1,"unitPrice":3000}]}}
-
-Update (dates only):
-User: "Make it due in 7 days from today."
-{"message":"Set due date to ${in7}.","invoice":{"dueDate":"${in7}"}}
-
-Answer only:
-User: "What is the total?"
-{"message":"<state the total from Current invoice>","invoice":null}
-
-Be concise in message. Never embed the invoice JSON inside message.`;
+  return candidates.map((c) => String(c || "").trim()).find(Boolean) || "";
 }
+
+// Stay under typical Cloudflare ~100s proxy limits.
+const CHAT_TIMEOUT_MS = Number(process.env.OPENAI_CHAT_TIMEOUT_MS || 55_000);
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -246,49 +211,55 @@ app.post("/api/chat", async (req, res) => {
     };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-    const payload = {
-      model: OPENAI_MODEL,
-      stream: false,
-      messages: [
-        {
-          role: "system",
-          content:
-            buildSystemPrompt() +
-            "\n\nCurrent invoice JSON:\n" +
-            JSON.stringify(invoice ?? {}, null, 2),
-        },
-        ...messages.map((m) => ({
-          role: m.role === "assistant" ? "assistant" : "user",
-          content: String(m.content ?? ""),
-        })),
-      ],
-    };
-
     const upstream = await fetch(OPENAI_CHAT_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        stream: false,
+        temperature: 0.1,
+        messages: [
+          {
+            role: "system",
+            content:
+              buildSystemPrompt() +
+              "\n\nCurrent invoice JSON:\n" +
+              JSON.stringify(invoice ?? {}, null, 2),
+          },
+          ...messages.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: String(m.content ?? ""),
+          })),
+        ],
+      }),
+      signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
     });
 
     const text = await upstream.text();
     if (!upstream.ok) {
-      return res
-        .status(upstream.status)
-        .type("application/json")
-        .send(text || JSON.stringify({ error: `OpenAI HTTP ${upstream.status}` }));
+      const looksLikeCf =
+        upstream.status === 502 ||
+        upstream.status === 504 ||
+        /cloudflare|timeout|gateway/i.test(text);
+      return res.status(upstream.status === 502 || upstream.status === 504 ? 504 : upstream.status).json({
+        error: looksLikeCf
+          ? "Chat upstream timed out or returned a gateway error (often Cloudflare). Try a shorter request or again in a moment."
+          : `Chat upstream HTTP ${upstream.status}`,
+        detail: text.slice(0, 500),
+      });
     }
 
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      return res.status(502).json({ error: "Invalid JSON from OpenAI API", raw: text });
+      return res.status(502).json({
+        error: "Invalid JSON from chat upstream",
+        detail: text.slice(0, 500),
+      });
     }
 
-    const content =
-      data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? "";
-
+    const content = extractChatContent(data);
     const parsed = parseAssistantPayload(String(content || ""));
 
     res.json({
@@ -300,7 +271,15 @@ app.post("/api/chat", async (req, res) => {
     });
   } catch (err) {
     console.error("Chat proxy error:", err);
-    res.status(502).json({ error: `OpenAI proxy error: ${err.message}` });
+    const timedOut =
+      err?.name === "TimeoutError" ||
+      err?.name === "AbortError" ||
+      /aborted|timeout/i.test(String(err?.message || ""));
+    res.status(timedOut ? 504 : 502).json({
+      error: timedOut
+        ? `Chat request timed out after ${Math.round(CHAT_TIMEOUT_MS / 1000)}s. The model may be slow — try again with a shorter prompt.`
+        : `OpenAI proxy error: ${err.message}`,
+    });
   }
 });
 

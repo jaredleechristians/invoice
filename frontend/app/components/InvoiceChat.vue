@@ -14,7 +14,8 @@ const history = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const bubbles = ref<ChatBubble[]>([
   {
     role: 'system',
-    content: 'Try “Create an invoice for …” or ask me to update bill to, line items, notes, banking, or dates. Unsaved form edits are kept unless you ask to change them.',
+    content:
+      'Paste a full invoice brief or send one change at a time. I’ll apply what you provide and confirm each update.',
   },
 ])
 
@@ -43,7 +44,6 @@ async function sendMessage() {
   scrollToBottom()
 
   try {
-    // Snapshot what the model sees so we only apply fields it actually changed.
     const sentInvoice = cloneInvoice(invoice.value)
 
     const res = await fetch('/api/chat', {
@@ -57,10 +57,15 @@ async function sendMessage() {
 
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      throw new Error(data?.error || data?.detail || `HTTP ${res.status}`)
+      throw new Error(
+        data?.error ||
+          data?.message ||
+          data?.detail ||
+          data?.statusMessage ||
+          `HTTP ${res.status}`,
+      )
     }
 
-    // Prefer structured fields from the API; fall back to parsing raw content.
     let message = typeof data.message === 'string' ? data.message.trim() : ''
     let nextInvoice = data.invoice && typeof data.invoice === 'object' ? data.invoice : null
 
@@ -70,13 +75,41 @@ async function sendMessage() {
       if (!nextInvoice) nextInvoice = parsed.invoice
     }
 
-    if (nextInvoice) {
-      applyInvoice(nextInvoice, sentInvoice)
+    if (/^(done\.?|ok\.?|updated\.?)$/i.test(message) && nextInvoice) {
+      message = 'Invoice updated.'
     }
 
-    const reply = message || (nextInvoice ? 'Invoice updated.' : 'Done.')
+    const effective = nextInvoice ? diffInvoicePatch(nextInvoice, sentInvoice) : null
+    let applied = false
+    if (nextInvoice) {
+      applied = applyInvoice(nextInvoice, sentInvoice)
+    }
+
+    let reply = message
+    if (applied && !reply) reply = 'Invoice updated.'
+    if (!applied && nextInvoice) {
+      reply = reply || 'No field changes detected in the assistant response.'
+    }
+    if (!applied && !nextInvoice) {
+      reply =
+        reply && !/^(done\.?|ok\.?)$/i.test(reply)
+          ? reply
+          : 'No invoice update was returned. Please try again or rephrase.'
+    }
+
+    if (applied && effective) {
+      const summary = describeInvoicePatch(effective)
+      const next = suggestNextInvoiceStep(effective)
+      const feedback = [
+        summary ? `Applied: ${summary}.` : 'Applied your changes.',
+        next
+          ? `Still useful to add: ${next.hint.toLowerCase()}.`
+          : 'Looks complete — tweak anything else if needed.',
+      ].join('\n')
+      reply = reply ? `${reply}\n\n${feedback}` : feedback
+    }
+
     bubbles.value.push({ role: 'assistant', content: reply })
-    // Keep history as the short reply so later turns don't re-feed giant JSON.
     history.value.push({ role: 'assistant', content: reply })
   } catch (err: any) {
     bubbles.value.push({
@@ -115,6 +148,7 @@ async function sendMessage() {
       <div class="chat-header">
         <div>
           <h2>Invoice assistant</h2>
+          <p class="chat-subtitle">Full brief or one change · live feedback</p>
         </div>
         <button type="button" class="chat-close" aria-label="Close chat" @click="open = false">
           ×
@@ -130,13 +164,14 @@ async function sendMessage() {
         >
           {{ bubble.content }}
         </div>
+        <div v-if="sending" class="chat-bubble system">Updating invoice…</div>
       </div>
 
       <form class="chat-composer" @submit.prevent="sendMessage">
         <textarea
           v-model="draft"
           rows="3"
-          placeholder="e.g. Change bill to Acme Pty Ltd, Cape Town"
+          placeholder="Paste a full brief, or e.g. Set bill to Acme Pty Ltd, Cape Town"
           required
           @keydown.meta.enter.prevent="sendMessage"
           @keydown.ctrl.enter.prevent="sendMessage"

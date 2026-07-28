@@ -255,6 +255,79 @@ export function diffInvoicePatch(
   return any ? out : null
 }
 
+export function describeInvoicePatch(patch: Partial<Invoice> | null | undefined): string {
+  if (!patch) return ''
+  const parts: string[] = []
+  if (patch.billTo) parts.push('bill to')
+  if (patch.billFrom) parts.push('bill from')
+  if (patch.items) parts.push(`${patch.items.length} line item${patch.items.length === 1 ? '' : 's'}`)
+  if (patch.invoiceNumber) parts.push('invoice number')
+  if (patch.issueDate || patch.dueDate) parts.push('dates')
+  if (patch.notes) parts.push('notes')
+  if (patch.banking) parts.push('banking')
+  if (patch.legal) parts.push('footer')
+  return parts.join(', ')
+}
+
+export type InvoiceStepId =
+  | 'billTo'
+  | 'billFrom'
+  | 'items'
+  | 'dates'
+  | 'banking'
+
+export const INVOICE_CHAT_STEPS: {
+  id: InvoiceStepId
+  label: string
+  hint: string
+  starter: string
+}[] = [
+  {
+    id: 'billTo',
+    label: '1. Bill to',
+    hint: 'Customer name and address',
+    starter: 'Set bill to ',
+  },
+  {
+    id: 'billFrom',
+    label: '2. Bill from',
+    hint: 'Your business details',
+    starter: 'Set bill from ',
+  },
+  {
+    id: 'items',
+    label: '3. Line items',
+    hint: 'Descriptions, qty, and prices',
+    starter: 'Replace line items with: ',
+  },
+  {
+    id: 'dates',
+    label: '4. Number & dates',
+    hint: 'Invoice number, issue and due dates',
+    starter: 'Set invoice number to INV-2026- and due date to ',
+  },
+  {
+    id: 'banking',
+    label: '5. Banking & notes',
+    hint: 'Payment details and notes',
+    starter: 'Set banking to bank , account name , account number , branch , and notes to ',
+  },
+]
+
+/** Suggest the next guided step after a patch (or from current form state). */
+export function suggestNextInvoiceStep(
+  patch: Partial<Invoice> | null | undefined,
+): (typeof INVOICE_CHAT_STEPS)[number] | null {
+  const done = new Set<InvoiceStepId>()
+  if (patch?.billTo) done.add('billTo')
+  if (patch?.billFrom) done.add('billFrom')
+  if (patch?.items) done.add('items')
+  if (patch?.invoiceNumber || patch?.issueDate || patch?.dueDate) done.add('dates')
+  if (patch?.banking || patch?.notes) done.add('banking')
+
+  return INVOICE_CHAT_STEPS.find((step) => !done.has(step.id)) || null
+}
+
 export function lineAmount(item: LineItem) {
   return parseNumber(item.qty) * parseNumber(item.unitPrice)
 }
