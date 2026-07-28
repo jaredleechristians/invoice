@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
+const { parseAssistantPayload } = require("./parseAssistant");
 
 const PORT = Number(process.env.PORT || 8787);
 
@@ -113,25 +114,122 @@ app.post("/api/pdf", upload.any(), async (req, res) => {
   }
 });
 
-const SYSTEM_PROMPT = `You are an invoice assistant for a South African invoice editor.
-You can answer questions and update invoice fields when the user asks.
+function formatInvoiceDate(date) {
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
-Always respond with ONLY a single JSON object (no markdown fences) using this shape:
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function buildSystemPrompt() {
+  const now = new Date();
+  const todayLabel = formatInvoiceDate(now);
+  const in7 = formatInvoiceDate(addDays(now, 7));
+  const in14 = formatInvoiceDate(addDays(now, 14));
+  const in30 = formatInvoiceDate(addDays(now, 30));
+
+  return `You are an invoice assistant for a South African invoice editor (amounts display as ZAR; no VAT on this invoice).
+
+CRITICAL: Respond with ONLY one valid JSON object. No markdown fences. No prose outside JSON.
+Escape newlines in strings as \\n.
+
+Response shape:
 {
-  "message": "short natural-language reply for the user",
+  "message": "short reply for the user",
   "invoice": null
 }
 
-Rules:
-- If the user asks to change the invoice, set "invoice" to the FULL updated invoice object (merge their request into the current invoice).
-- If no field changes are needed, set "invoice" to null.
-- Keep amounts excluding VAT. Do not add VAT calculations.
-- Preserve existing values unless the user asks to change them.
-- Line items use: description, note, qty, unitPrice (numbers).
-- banking uses: bank, accountName, accountNumber, branchCode, reference.
-- billTo / billFrom use: name, details (details may include newlines).
-- Dates can stay in human-readable form (e.g. "27 Jul 2026").
-- Be concise in "message".`;
+"invoice" is either null (Q&A / no edits) or a PARTIAL patch. The editor merges the patch onto the live form; omitted fields are preserved.
+
+Schema:
+- invoiceNumber, issueDate, dueDate, notes, legal: strings
+- billTo / billFrom: { name, details }
+- banking: { bank, accountName, accountNumber, branchCode, reference }
+- items: [{ description, note, qty, unitPrice }] with qty/unitPrice as numbers
+
+Today's date for calculations: ${todayLabel}
+
+=== Step 1: Decide intent ===
+A) CREATE — user wants a new invoice built from their description.
+   Signals: "create", "generate", "make an invoice", "invoice <name> for…", "new invoice", or a full brief with customer + work + amounts even without the word create.
+B) UPDATE — user wants to change the current invoice.
+   Signals: "change", "update", "set", "add a line", "remove", "rename bill to", "move due date", tweaks to existing fields.
+C) ANSWER — questions only, no form changes → "invoice": null.
+
+If the message mixes both (e.g. create then also set a note), apply create fields first, then any extra updates in the same patch.
+
+=== Step 2: Shared field mapping (create and update) ===
+- Customer / client name → billTo.name; address, email, VAT, PO, etc. → billTo.details ("" if unknown).
+- Seller / "from" changes → billFrom (rare); otherwise leave billFrom alone.
+- Work / services → items[].description; period, horse name, location, etc. → note.
+- Lump sum ("totaling 1500", "charge 950") → one item, qty 1, unitPrice = that number.
+- Unit rates ("10 hours at 75/hour", "3 sessions at 120 each") → qty = count, unitPrice = rate.
+- Separate cost components ("labour … and materials …") → separate line items unless user says to combine.
+- Strip $, R, commas, and words like "dollars"; store plain numbers. Do not FX-convert.
+- Relative due dates from today (${todayLabel}) unless user gives an explicit issue date:
+  - "due in N days" / "Net N" → dueDate = issueDate + N days (same style, e.g. "${in14}")
+  - "due on receipt" → dueDate "On receipt"; may add payment terms to notes
+  - explicit calendar dates → use that human-readable form
+- On create, set issueDate to ${todayLabel} unless the user specifies otherwise.
+- "unpaid" / paid status → NO status field; put e.g. "Status: Unpaid" in notes.
+- Tax / VAT / "plus applicable tax" → do NOT add tax lines or inflate totals; say in message that this invoice is ex-VAT.
+- invoiceNumber changes → banking.reference should match (or omit banking; editor syncs).
+- Clearing a string → set it to "".
+
+=== Step 3: What to include in the patch ===
+CREATE:
+- Always include: billTo, items (FULL replacement array — wipe old demo lines), issueDate, dueDate.
+- Include notes only if useful (terms, unpaid, extras).
+- Do NOT touch billFrom, banking (except reference if number changes), or legal unless asked.
+
+UPDATE:
+- Include ONLY fields the user asked to change.
+- Adding/removing/replacing lines → send the full resulting items array (start from Current invoice items).
+- Do not resend unchanged unit prices, footer, banking, etc.
+
+=== Examples ===
+
+Create:
+User: "Create an invoice for John Smith for website design totaling $1,500, due in 14 days."
+{"message":"Created invoice for John Smith — website design R1,500, due ${in14}.","invoice":{"billTo":{"name":"John Smith","details":""},"issueDate":"${todayLabel}","dueDate":"${in14}","items":[{"description":"Website design","note":"","qty":1,"unitPrice":1500}]}}
+
+Create (multi-line):
+User: "Generate an invoice for ABC Construction for July maintenance: 10 hours labour at $75/hour and materials $320."
+{"message":"Created invoice for ABC Construction with labour and materials.","invoice":{"billTo":{"name":"ABC Construction","details":""},"issueDate":"${todayLabel}","dueDate":"${todayLabel}","items":[{"description":"Labour — July maintenance","note":"10 hours","qty":10,"unitPrice":75},{"description":"Materials — July maintenance","note":"","qty":1,"unitPrice":320}]}}
+
+Create (tax + Net 30 — ignore tax):
+User: "Invoice Acme Ltd for monthly IT support. Charge $950 plus tax, due in 30 days."
+{"message":"Created invoice for Acme Ltd (R950 ex-VAT; this editor does not add tax), due ${in30}.","invoice":{"billTo":{"name":"Acme Ltd","details":""},"issueDate":"${todayLabel}","dueDate":"${in30}","items":[{"description":"Monthly IT support","note":"","qty":1,"unitPrice":950}]}}
+
+Create (sessions + unpaid + due on receipt):
+User: "Invoice Sarah Johnson for 3 consulting sessions at $120 each. Mark unpaid and due on receipt."
+{"message":"Created invoice for Sarah Johnson — 3 sessions at R120, unpaid, due on receipt.","invoice":{"billTo":{"name":"Sarah Johnson","details":""},"issueDate":"${todayLabel}","dueDate":"On receipt","notes":"Status: Unpaid. Payment due on receipt.","items":[{"description":"Consulting session","note":"","qty":3,"unitPrice":120}]}}
+
+Update (partial):
+User: "Change bill to TKP Trading, Bassonia."
+{"message":"Updated bill to TKP Trading.","invoice":{"billTo":{"name":"TKP Trading","details":"Bassonia"}}}
+
+Update (add a line — return full items list based on Current invoice):
+User: "Add a race win line for Frangipani at 3000."
+{"message":"Added Race Win — Frangipani.","invoice":{"items":[{"description":"(keep every existing Current invoice item unchanged)"},{"description":"Race Win","note":"Frangipani","qty":1,"unitPrice":3000}]}}
+
+Update (dates only):
+User: "Make it due in 7 days from today."
+{"message":"Set due date to ${in7}.","invoice":{"dueDate":"${in7}"}}
+
+Answer only:
+User: "What is the total?"
+{"message":"<state the total from Current invoice>","invoice":null}
+
+Be concise in message. Never embed the invoice JSON inside message.`;
+}
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -155,7 +253,7 @@ app.post("/api/chat", async (req, res) => {
         {
           role: "system",
           content:
-            SYSTEM_PROMPT +
+            buildSystemPrompt() +
             "\n\nCurrent invoice JSON:\n" +
             JSON.stringify(invoice ?? {}, null, 2),
         },
@@ -191,8 +289,12 @@ app.post("/api/chat", async (req, res) => {
     const content =
       data?.choices?.[0]?.message?.content ?? data?.choices?.[0]?.text ?? "";
 
+    const parsed = parseAssistantPayload(String(content || ""));
+
     res.json({
       content,
+      message: parsed.message,
+      invoice: parsed.invoice,
       model: data.model || OPENAI_MODEL,
       raw: data,
     });
