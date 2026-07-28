@@ -1,0 +1,44 @@
+# Example: run the invoice app from GitHub Container Registry packages
+# (no local build required).
+#
+# Images (published by CI on main):
+#   ghcr.io/jaredleechristians/invoice-api:<tag>
+#   ghcr.io/jaredleechristians/invoice-web:<tag>
+#
+# Usage:
+#   cp .env.example .env   # set OPENAI_* and GOTENBERG_*
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# If packages are private, log in first:
+#   echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+#
+# Optional tag override (default: latest):
+#   IMAGE_TAG=1.0.1 docker compose -f docker-compose.ghcr.yml up -d
+
+services:
+  api:
+    image: ghcr.io/jaredleechristians/invoice-api:${IMAGE_TAG:-latest}
+    ports:
+      - "${API_PORT:-8787}:8787"
+    env_file:
+      - .env
+    environment:
+      PORT: "8787"
+      GOTENBERG_HOSTNAME: ${GOTENBERG_HOSTNAME}
+      OPENAI_API_HOSTNAME: ${OPENAI_API_HOSTNAME}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-openrouter/free}
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/jaredleechristians/invoice-web:${IMAGE_TAG:-latest}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      NUXT_API_PROXY: http://api:8787
+    depends_on:
+      - api
+    restart: unless-stopped
