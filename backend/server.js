@@ -5,11 +5,11 @@ const { parseAssistantPayload } = require("./parseAssistant");
 
 const PORT = Number(process.env.PORT || 8787);
 
-// Loaded from .env via Docker Compose:
-// OPENAI_API_KEY, OPENAI_API_HOSTNAME, GOTENBERG_HOSTNAME
+// Loaded from .env via Docker Compose (OpenRouter):
+// OPENAI_API_KEY, OPENAI_API_HOSTNAME, OPENAI_MODEL, GOTENBERG_HOSTNAME
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_API_HOSTNAME = (
-  process.env.OPENAI_API_HOSTNAME || ""
+  process.env.OPENAI_API_HOSTNAME || "https://openrouter.ai/api"
 ).replace(/\/+$/, "");
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "openrouter/free";
 
@@ -28,7 +28,18 @@ if (!OPENAI_API_KEY) {
 }
 
 const GOTENBERG_CONVERT_URL = `${GOTENBERG_HOSTNAME}/forms/chromium/convert/html`;
-const OPENAI_CHAT_URL = `${OPENAI_API_HOSTNAME}/api/chat/completions`;
+
+/** OpenRouter chat completions URL from a base like https://openrouter.ai/api. */
+function buildOpenRouterChatUrl(hostname) {
+  const base = String(hostname || "").replace(/\/+$/, "");
+  if (!base) return "";
+  if (/\/chat\/completions$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
+  if (/\/api$/i.test(base)) return `${base}/v1/chat/completions`;
+  return `${base}/api/v1/chat/completions`;
+}
+
+const OPENAI_CHAT_URL = buildOpenRouterChatUrl(OPENAI_API_HOSTNAME);
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -208,6 +219,9 @@ app.post("/api/chat", async (req, res) => {
       "Content-Type": "application/json",
       Accept: "application/json",
       "User-Agent": BROWSER_UA,
+      // Recommended by OpenRouter when calling their API directly.
+      "HTTP-Referer": "http://localhost:3000",
+      "X-Title": "Invoice",
     };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
