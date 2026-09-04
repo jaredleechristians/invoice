@@ -6,7 +6,7 @@
 #   ghcr.io/jaredleechristians/invoice-web:<tag>
 #
 # Usage:
-#   cp .env.example .env   # set OPENAI_* and GOTENBERG_*
+#   cp .env.example .env   # set OpenRouter + Gotenberg vars
 #   docker compose -f docker-compose.ghcr.yml pull
 #   docker compose -f docker-compose.ghcr.yml up -d
 #
