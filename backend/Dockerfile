@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
 COPY server.js parseAssistant.js ./
+COPY lib ./lib
+COPY routes ./routes
 ENV PORT=8787
 EXPOSE 8787
 CMD ["npm", "start"]

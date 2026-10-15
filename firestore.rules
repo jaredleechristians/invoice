@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
+    }
+
+    function isMember(companyId) {
+      return signedIn() && memberDoc(companyId).exists;
+    }
+
+    function memberRole(companyId) {
+      return memberDoc(companyId).data.role;
+    }
+
+    function canWrite(companyId) {
+      return isMember(companyId) && memberRole(companyId) in ['owner', 'admin', 'member'];
+    }
+
+    function canAdmin(companyId) {
+      return isMember(companyId) && memberRole(companyId) in ['owner', 'admin'];
+    }
+
+    match /companies/{companyId} {
+      allow read: if isMember(companyId);
+      allow create: if signedIn();
+      allow update, delete: if canAdmin(companyId);
+
+      match /members/{userId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
+      match /invites/{inviteId} {
+        allow read: if canAdmin(companyId);
+        allow write: if false;
+      }
+
+      match /customers/{customerId} {
+        allow read: if isMember(companyId);
+        allow create, update: if canWrite(companyId);
+        allow delete: if canAdmin(companyId);
+      }
+
+      match /invoices/{invoiceId} {
+        allow read: if isMember(companyId);
+        allow create, update: if canWrite(companyId);
+        allow delete: if canAdmin(companyId);
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isMember(companyId);
+        allow create, update, delete: if false;
+      }
+
+      match /counters/{counterId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
+      match /auditLog/{logId} {
+        allow read: if canAdmin(companyId);
+        allow write: if false;
+      }
+    }
+  }
+}

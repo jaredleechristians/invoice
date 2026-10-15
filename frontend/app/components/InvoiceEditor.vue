@@ -83,17 +83,6 @@ async function downloadPdf() {
 
 <template>
   <div>
-    <div class="toolbar">
-      <div class="toolbar-actions">
-        <button type="button" class="btn btn-secondary" @click="saveToStorage">
-          {{ savedFlash ? 'Saved' : 'Save' }}
-        </button>
-        <button type="button" class="btn" :disabled="pdfBusy" @click="downloadPdf">
-          {{ pdfBusy ? 'Preparing PDF…' : 'Download PDF' }}
-        </button>
-      </div>
-    </div>
-
     <article class="invoice" aria-label="Invoice">
       <div class="invoice-inner">
         <header class="header">
@@ -318,5 +307,16 @@ async function downloadPdf() {
         />
       </div>
     </article>
+
+    <div class="toolbar toolbar--below">
+      <div class="toolbar-actions">
+        <button type="button" class="btn btn-secondary" @click="saveToStorage">
+          {{ savedFlash ? 'Saved' : 'Save' }}
+        </button>
+        <button type="button" class="btn" :disabled="pdfBusy" @click="downloadPdf">
+          {{ pdfBusy ? 'Preparing PDF…' : 'Download PDF' }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>

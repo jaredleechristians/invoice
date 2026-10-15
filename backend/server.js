@@ -59,6 +59,9 @@ app.use((_req, res, next) => {
   next();
 });
 
+const { firebaseConfigured } = require("./lib/firebase");
+const tenantRoutes = require("./routes/tenant");
+
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -66,8 +69,11 @@ app.get("/api/health", (_req, res) => {
     openaiApiHostname: OPENAI_API_HOSTNAME,
     model: OPENAI_MODEL,
     openaiAuthConfigured: Boolean(OPENAI_API_KEY),
+    firebaseConfigured: firebaseConfigured(),
   });
 });
+
+app.use("/api/tenant", tenantRoutes);
 
 app.post("/api/pdf", upload.any(), async (req, res) => {
   try {
