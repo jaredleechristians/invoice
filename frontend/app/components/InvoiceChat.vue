@@ -153,7 +153,8 @@ async function sendMessage() {
           :class="bubble.role === 'user' ? 'justify-end' : 'justify-start'"
         >
           <div
-            class="max-w-[85%] rounded-lg px-3 py-2 whitespace-pre-wrap"
+            class="max-w-[85%] rounded-lg px-3 py-2"
+            :style="bubble.role === 'assistant' ? undefined : 'white-space: pre-wrap'"
             :class="{
               'bg-primary text-inverted': bubble.role === 'user',
               'bg-elevated border border-default': bubble.role === 'assistant',
@@ -161,7 +162,8 @@ async function sendMessage() {
               'bg-error/10 text-error border border-error/20': bubble.role === 'error',
             }"
           >
-            {{ bubble.content }}
+            <ChatMarkdown v-if="bubble.role === 'assistant'" :text="bubble.content" />
+            <template v-else>{{ bubble.content }}</template>
           </div>
         </div>
         <div v-if="sending" class="flex items-center gap-2 text-dimmed">

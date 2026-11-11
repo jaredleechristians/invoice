@@ -100,3 +100,18 @@ test("buildStatement end to end, JSON stays compatible, HTML matches the invoice
   assert.doesNotMatch(html, /tax invoice/i);
   await assert.rejects(() => buildStatement(co, "nope", {}), /Customer not found/);
 });
+
+test("assistant who_owes_money returns real outstanding balances (drafts and paid invoices left out)", async () => {
+  const { runTool } = require("../lib/tenantAssistant");
+  const co = (await companies.createCompany({ uid: "s1", email: "s1@example.com", name: "Owed Co" })).id;
+  const cust = await customers.createCustomer(co, ...OWNER, { name: "Acme Pty Ltd" });
+  const usd = await customers.createCustomer(co, ...OWNER, { name: "US Client", currency: "USD" });
+  const a = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: cust.id, issueDate: "2026-10-01", dueDate: "2026-10-31", items: [{ description: "Dev", qty: 10, unitPrice: 100 }] });
+  await payments.recordPayment(co, ...OWNER, { invoiceId: a.id, amount: 600, paidAt: "2026-10-20" });
+  const paid = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: cust.id, items: [{ description: "Paid", qty: 1, unitPrice: 50 }] });
+  await payments.recordPayment(co, ...OWNER, { invoiceId: paid.id, amount: 50, paidAt: "2026-10-20" });
+  await invoices.createInvoice(co, ...OWNER, { draft: true, customerId: cust.id, items: [{ description: "Draft", qty: 1, unitPrice: 999 }] });
+  await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: usd.id, items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
+  const { receivables } = await runTool(co, "who_owes_money", {});
+  assert.deepEqual(receivables.map((r) => [r.customerName, r.currency, r.outstanding, r.invoiceCount]), [["US Client", "USD", 2000, 1], ["Acme Pty Ltd", "ZAR", 400, 1]]);
+});
