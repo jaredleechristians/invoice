@@ -8,6 +8,7 @@ const { canDeleteRecords, canWriteRecords, assertCan } = require("./permissions"
 const { logAudit } = require("./audit");
 const { allocateNumber } = require("./numbering");
 const { fetchAll } = require("./db");
+const { paymentAccounts } = require("./bankAccounts");
 const { toIsoDate, todayIso, addDaysIso } = require("./dates");
 const {
   normalizeLines,
@@ -45,11 +46,24 @@ function withComputed(invoice, now = new Date()) {
   };
 }
 
+/** Optional ZAR per 1 unit of the invoice currency on the invoice date (null if unset). */
+function cleanExchangeRate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw httpError(400, "Exchange rate must be a positive number");
+  return Math.round(n * 1e6) / 1e6;
+}
+
+/**
+ * Company settings for documents. bankAccounts comes from the bank accounts
+ * collection (accounts marked "Show on invoices"), not the old settings field.
+ */
 async function loadCompany(companyId) {
   const db = getDb();
   const snap = await companyRef(db, companyId).get();
   if (!snap.exists) throw httpError(404, "Company not found");
-  return snap.data();
+  const data = snap.data();
+  return { ...data, bankAccounts: await paymentAccounts(companyId, data) };
 }
 
 async function listInvoices(companyId, { q, status, customerId, currency, limit } = {}) {
@@ -96,9 +110,9 @@ async function requireInvoice(companyId, invoiceId) {
 
 function assertFinalizable(doc) {
   const lines = (doc.items || []).filter((i) => String(i.description || "").trim());
-  if (!lines.length) throw httpError(400, "Add at least one line item before finalizing");
+  if (!lines.length) throw httpError(400, "Add at least one line item before publishing");
   if (!doc.customerId && !String(doc.billTo || doc.customerName || "").trim()) {
-    throw httpError(400, "Pick a customer before finalizing");
+    throw httpError(400, "Pick a customer before publishing");
   }
   if (roundMoney(doc.total) < 0) throw httpError(400, "Invoice total cannot be negative");
 }
@@ -137,6 +151,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     items,
     vatRate,
     ...totals,
+    exchangeRate: currency === "ZAR" ? null : cleanExchangeRate(body.exchangeRate),
     notes: body.notes !== undefined ? String(body.notes || "") : company.defaultNotes || "",
     footer: String(body.footer || ""),
     banking: body.banking || null,
@@ -198,6 +213,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     }
     patch.currency = currency;
   }
+  if (body.exchangeRate !== undefined) patch.exchangeRate = cleanExchangeRate(body.exchangeRate);
   if (body.issueDate !== undefined) patch.issueDate = toIsoDate(body.issueDate) || existing.issueDate;
   if (body.dueDate !== undefined) patch.dueDate = toIsoDate(body.dueDate) || String(body.dueDate || "");
   if (body.items !== undefined || body.vatRate !== undefined) {
@@ -241,7 +257,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
 
 async function finalizeInvoice(companyId, uid, email, role, invoiceId) {
   const existing = await requireInvoice(companyId, invoiceId);
-  if (!existing.draft) throw httpError(409, "Invoice is already finalized");
+  if (!existing.draft) throw httpError(409, "Invoice is already published");
   return updateInvoice(companyId, uid, email, role, invoiceId, { finalize: true });
 }
 
@@ -310,4 +326,5 @@ module.exports = {
   deleteInvoice,
   withComputed,
   loadCompany,
+  cleanExchangeRate,
 };

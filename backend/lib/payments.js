@@ -8,6 +8,7 @@ const { logAudit } = require("./audit");
 const { getInvoice, withComputed } = require("./invoices");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso } = require("./dates");
+const { releaseTransaction } = require("./bankLinks");
 
 const PAYMENT_METHODS = ["bank_transfer", "cash", "card", "paypal", "wise", "paystack", "other"];
 
@@ -69,7 +70,8 @@ function validatePaymentInput(body) {
   };
 }
 
-async function recordPayment(companyId, uid, email, role, body = {}) {
+/** `extra` lets internal callers (bank reconcile) add link/forex fields. */
+async function recordPayment(companyId, uid, email, role, body = {}, extra = {}) {
   assertCan(canWriteRecords, role);
   const input = validatePaymentInput(body);
   const db = getDb();
@@ -78,7 +80,7 @@ async function recordPayment(companyId, uid, email, role, body = {}) {
 
   const result = await applyPaymentChange(db, companyId, input.invoiceId, ({ invoice, payments, tx }) => {
     if (invoice.voided) throw httpError(409, "Cannot record payments on a void invoice");
-    if (invoice.draft) throw httpError(409, "Finalize the invoice before recording payments");
+    if (invoice.draft) throw httpError(409, "Publish the invoice before recording payments");
     const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments));
     if (input.amount > outstanding + 0.001) {
       throw httpError(400, `Payment exceeds the outstanding balance (${outstanding.toFixed(2)} ${invoice.currency || "ZAR"})`);
@@ -90,6 +92,7 @@ async function recordPayment(companyId, uid, email, role, body = {}) {
       customerId: invoice.customerId || "",
       customerName: invoice.customerName || "",
       voided: false,
+      ...extra,
       createdAt: now,
       createdBy: uid,
     };
@@ -124,6 +127,7 @@ async function voidPayment(companyId, uid, email, role, paymentId, { reason = ""
     tx.set(paymentsCol(db, companyId).doc(paymentId), patch, { merge: true });
     return { payments: payments.map((p) => (p.id === paymentId ? { ...p, ...patch } : p)) };
   });
+  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId);
   await logAudit({ companyId, uid, email, action: "payment.void", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
   return { payment: normalizePayment({ ...payment, ...patch }), invoice: await getInvoice(companyId, payment.invoiceId) };
 }
@@ -141,6 +145,7 @@ async function deletePayment(companyId, uid, email, role, paymentId) {
   } else {
     await paymentsCol(db, companyId).doc(paymentId).delete();
   }
+  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId);
   await logAudit({ companyId, uid, email, action: "payment.delete", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
   return { invoice: invSnap.exists ? await getInvoice(companyId, payment.invoiceId) : null };
 }

@@ -18,6 +18,7 @@ const NAV = [
   { to: "/dashboard/customers", label: "Customers", icon: "i-lucide-users" },
   { to: "/dashboard/products", label: "Products", icon: "i-lucide-package" },
   { to: "/dashboard/expenses", label: "Expenses", icon: "i-lucide-wallet" },
+  { to: "/dashboard/transactions", label: "Transactions", icon: "i-lucide-landmark" },
   { to: "/dashboard/reports", label: "Reports", icon: "i-lucide-chart-column" },
   { to: "/dashboard/settings", label: "Settings", icon: "i-lucide-settings" },
 ];

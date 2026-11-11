@@ -7,6 +7,7 @@ const { logAudit } = require("./audit");
 const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso, inRange } = require("./dates");
+const { releaseTransaction } = require("./bankLinks");
 
 // Receipts are stored in Firestore (separate doc) to avoid new infra; keep them small.
 const MAX_RECEIPT_BYTES = 700 * 1024;
@@ -208,6 +209,7 @@ async function deleteExpense(companyId, uid, email, role, expenseId) {
   batch.delete(expensesCol(companyId).doc(expenseId));
   batch.delete(receiptsCol(companyId).doc(expenseId));
   await batch.commit();
+  if (existing.transactionId) await releaseTransaction(companyId, existing.transactionId);
   await logAudit({ companyId, uid, email, action: "expense.delete", payload: { expenseId, amount: existing.amount, currency: existing.currency } });
 }
 

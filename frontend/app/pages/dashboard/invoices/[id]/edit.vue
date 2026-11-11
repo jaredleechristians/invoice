@@ -42,7 +42,7 @@ async function onSubmit({ body, finalize }: { body: Record<string, unknown>; fin
       v-if="invoice && !invoice.draft && !invoice.voided"
       color="warning"
       variant="subtle"
-      title="This invoice is finalized. Changes apply to the issued invoice; the number stays the same."
+      title="This invoice is published. Changes apply to the issued invoice; the number stays the same."
     />
     <DocumentForm v-if="invoice && !invoice.voided" kind="invoice" :initial="invoice" :saving="saving" @submit="onSubmit" />
   </div>

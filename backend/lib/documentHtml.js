@@ -149,4 +149,4 @@ function renderDocumentHtml({ kind = "invoice", doc, company = {} }) {
 </div></article></body></html>`;
 }
 
-module.exports = { renderDocumentHtml, resolveIssuer, legacyBankText };
+module.exports = { renderDocumentHtml, resolveIssuer, legacyBankText, CSS };

@@ -24,7 +24,7 @@ const draft = ref("");
 const history = ref<{ role: "user" | "assistant"; content: string }[]>([]);
 const bubbles = ref<Bubble[]>([]);
 const DESCRIPTION =
-  "Ask about your numbers or tell me what to add, e.g. 'Add an R1,200 fuel expense today'. I'll confirm before saving anything.";
+  "Ask about your numbers or tell me what to add. I'll confirm before saving anything.";
 const suggestions = ["Who owes us money?", "Add an R1,200 fuel expense today", "Draft an invoice for a customer"];
 const scroller = ref<HTMLElement | null>(null);
 
@@ -159,14 +159,16 @@ const STATUS_BADGE: Record<AssistantAction["status"], { label: string; color: "n
 
           <div v-else class="flex" :class="b.role === 'user' ? 'justify-end' : 'justify-start'">
             <div
-              class="max-w-[85%] rounded-lg px-3 py-2 whitespace-pre-wrap"
+              class="max-w-[85%] rounded-lg px-3 py-2"
+              :style="b.role === 'assistant' ? undefined : 'white-space: pre-wrap'"
               :class="{
                 'bg-primary text-inverted': b.role === 'user',
                 'bg-elevated border border-default': b.role === 'assistant',
                 'bg-error/10 text-error border border-error/20': b.role === 'error',
               }"
             >
-              {{ b.content }}
+              <ChatMarkdown v-if="b.role === 'assistant'" :text="b.content" />
+              <template v-else>{{ b.content }}</template>
             </div>
           </div>
         </template>
@@ -179,7 +181,7 @@ const STATUS_BADGE: Record<AssistantAction["status"], { label: string; color: "n
 
     <template #footer>
       <form class="flex w-full gap-2" @submit.prevent="sendMessage">
-        <UInput v-model="draft" class="flex-1" placeholder="Who owes us money? Or: add an R1,200 fuel expense today" :disabled="sending" autofocus />
+        <UInput v-model="draft" class="flex-1" placeholder="Ask a question or tell me what to add" :disabled="sending" autofocus />
         <UButton type="submit" icon="i-lucide-send" :loading="sending" :disabled="!draft.trim()" aria-label="Send" />
       </form>
     </template>

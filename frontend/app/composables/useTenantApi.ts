@@ -1,3 +1,13 @@
+/** Plain message for a failed API call when the server sent no error text. */
+export function friendlyHttpError(status: number, fallback = "Something went wrong. Please try again.") {
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You don't have access to this.";
+  if (status === 404) return "This isn't available on the server yet. The API may need a restart or update.";
+  if (status === 413) return "That file is too large.";
+  if (status >= 500) return "The server had a problem. Please try again.";
+  return fallback;
+}
+
 type CompanyRow = {
   id: string;
   name: string;
@@ -19,7 +29,7 @@ export function useTenantApi() {
     const res = await fetch(`/api/tenant${path}`, { ...init, headers });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || res.statusText || "Request failed");
+      throw new Error(data.error || friendlyHttpError(res.status));
     }
     return data as T;
   }
@@ -32,7 +42,7 @@ export function useTenantApi() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || res.statusText || "Download failed");
+      throw new Error(data.error || friendlyHttpError(res.status, "Download failed. Please try again."));
     }
     return res.blob();
   }

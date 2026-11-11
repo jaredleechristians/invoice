@@ -43,6 +43,23 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Bank accounts (also the payment details printed on invoices, quotes
+      // and statements), imported statement lines and import batches.
+      // Members of this company read; only the server writes (owners/admins
+      // manage accounts through the API).
+      match /bankAccounts/{accountId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+      match /bankTransactions/{transactionId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+      match /bankImports/{importId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
       // Business records (customers, products, invoices, quotes, payments,
       // expenses, expenseCategories, expenseReceipts, counters, …):
       // readable by members, written only by the server.

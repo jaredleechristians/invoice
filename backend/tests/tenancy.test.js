@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const express = require("express");
 const { setupFake } = require("./helpers/setup");
+let fakeDb;
 
 let server;
 let base;
@@ -21,7 +22,7 @@ const BOB = "bob:bob@example.com";
 const CAROL = "carol:carol@example.com";
 
 test.before(async () => {
-  setupFake();
+  fakeDb = setupFake();
   const router = require("../routes/tenant");
   const app = express();
   app.use(express.json({ limit: "2mb" }));
@@ -132,21 +133,39 @@ test("invites, roles and member management follow role rules", async () => {
   assert.deepEqual(members.data.members.map((m) => m.id), ["alice"]);
 });
 
-test("settings validation keeps VAT off by default and bank accounts as text", async () => {
+test("settings validation keeps VAT off by default; old bank account text migrates once into bank accounts", async () => {
+  // Old data: payment details stored as text on the company document.
+  await fakeDb.doc(`companies/${aliceCo}`).set({
+    bankAccounts: [
+      { id: "a1", label: "ZAR bank", currency: "ZAR", details: "Bank: FNB\nAccount name: Ezintsha\nAccount number: 62000001234\nBranch code: 250655" },
+      { id: "a2", label: "USD Wise", currency: "USD", details: "Account 987\nACH routing 000000000" },
+    ],
+  }, { merge: true });
   const r = await call(ALICE, "PATCH", `/companies/${aliceCo}`, {
     name: "Ezintsha Holdings",
-    bankAccounts: [
-      { label: "ZAR bank", currency: "ZAR", details: "Account 123\nBranch 250655" },
-      { label: "USD Wise", currency: "USD", details: "Account 987\nACH routing 000000000" },
-    ],
+    bankAccounts: [{ label: "Ignored", details: "x" }],
     invoicePrefix: "EZ-",
     invoiceNextNumber: 40,
   });
   assert.equal(r.status, 200);
   assert.equal(r.data.vatRegistered, false);
-  assert.equal(r.data.bankAccounts.length, 2);
+  assert.deepEqual(r.data.bankAccounts.map((a) => a.label), ["USD Wise", "ZAR bank"], "settings PATCH no longer writes bank accounts");
   assert.equal(r.data.invoicePrefix, "EZ-");
   assert.equal(r.data.invoiceNextNumber, 40);
+  const list = (await call(ALICE, "GET", `/companies/${aliceCo}/bank-accounts`)).data.accounts;
+  assert.equal(list.length, 2);
+  const zar = list.find((a) => a.name === "ZAR bank");
+  assert.equal(zar.bank, "fnb");
+  assert.equal(zar.accountNumber, "62000001234");
+  assert.equal(zar.accountLast4, "1234");
+  assert.equal(zar.branchCode, "250655");
+  assert.equal(zar.showOnInvoices, true);
+  assert.equal(list.find((a) => a.name === "USD Wise").bank, "wise");
+  const again = await call(ALICE, "POST", `/companies/${aliceCo}/bank-accounts/migrate`);
+  assert.equal(again.data.created, 0, "running it again creates nothing");
+  assert.equal((await call(ALICE, "GET", `/companies/${aliceCo}/bank-accounts`)).data.accounts.length, 2);
+  const legacy = (await fakeDb.doc(`companies/${aliceCo}`).get()).data().bankAccounts;
+  assert.equal(legacy.length, 2, "old field kept untouched");
   const bad = await call(ALICE, "PATCH", `/companies/${aliceCo}`, { logoDataUrl: "javascript:alert(1)" });
   assert.equal(bad.status, 400);
 });
@@ -167,6 +186,19 @@ test("invoice PDF HTML picks the bank account matching the invoice currency", as
   assert.match(html, /USD Wise/);
   assert.doesNotMatch(html, /ZAR bank/);
   assert.doesNotMatch(html, /VAT/);
+  // Hidden from invoices -> not printed; with no match for the currency, all shown accounts print.
+  const accts = (await call(ALICE, "GET", `/companies/${aliceCo}/bank-accounts`)).data.accounts;
+  const wise = accts.find((a) => a.name === "USD Wise");
+  await call(ALICE, "PATCH", `/companies/${aliceCo}/bank-accounts/${wise.id}`, { showOnInvoices: false });
+  const draft = await call(ALICE, "POST", `/companies/${aliceCo}/invoices`, { draft: true, customerId: cust.data.id, items: [{ description: "x", qty: 1, unitPrice: 1 }] });
+  const html2 = await (await fetch(`${base}/api/tenant/companies/${aliceCo}/invoices/${draft.data.id}/pdf?format=html`, { headers: { Authorization: `Bearer ${ALICE}` } })).text();
+  assert.doesNotMatch(html2, /USD Wise/);
+  assert.match(html2, /ZAR bank/);
+  assert.match(html2, /Account number: 62000001234/);
+  // The published invoice keeps its frozen snapshot.
+  const html3 = await (await fetch(`${base}/api/tenant/companies/${aliceCo}/invoices/${inv.data.id}/pdf?format=html`, { headers: { Authorization: `Bearer ${ALICE}` } })).text();
+  assert.match(html3, /USD Wise/);
+  await call(ALICE, "PATCH", `/companies/${aliceCo}/bank-accounts/${wise.id}`, { showOnInvoices: true });
 });
 
 test("a user can create a second company and switch between isolated data", async () => {
@@ -181,4 +213,16 @@ test("a user can create a second company and switch between isolated data", asyn
   const inFirst = (await call(ALICE, "GET", `/companies/${aliceCo}/customers`)).data.customers.map((c) => c.name);
   assert.ok(!inFirst.includes("Only In Side Project"));
   assert.equal((await call(BOB, "GET", `/companies/${created.data.id}/customers`)).status, 403);
+});
+
+test("company settings: tax year end month defaults to Feb and is validated", async () => {
+  const companies = require("../lib/companies");
+  const c = await companies.createCompany({ uid: "tx1", email: "tx1@example.com", name: "Tax Co" });
+  const got = await companies.getCompany(c.id);
+  assert.equal(got.taxYearEndMonth, 2);
+  assert.equal(got.vatRate, 15);
+  const upd = await companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { taxYearEndMonth: 6 });
+  assert.equal(upd.taxYearEndMonth, 6);
+  await assert.rejects(() => companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { taxYearEndMonth: 13 }), /1-12/);
+  await assert.rejects(() => companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { vatRate: 101 }), /between 0 and 100/);
 });

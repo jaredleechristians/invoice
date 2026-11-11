@@ -33,7 +33,7 @@ test("finalized invoices get sequential numbers; drafts get none", async () => {
 test("finalizing twice is rejected", async () => {
   const list = await invoices.listInvoices(co);
   const first = list.find((i) => i.invoiceNumber === "INV-0001");
-  await assert.rejects(() => invoices.finalizeInvoice(co, ...A, first.id), /already finalized/);
+  await assert.rejects(() => invoices.finalizeInvoice(co, ...A, first.id), /already published/);
 });
 
 test("prefix and next number come from settings; used numbers are skipped", async () => {

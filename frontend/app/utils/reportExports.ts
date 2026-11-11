@@ -104,23 +104,6 @@ export const REPORT_EXPORTS: ReportExport[] = [
   },
 ];
 
-/** Every report stacked into one table, prefixed with a "Report" column. */
-export const ALL_REPORTS_EXPORT: ReportExport = {
-  id: "all",
-  label: "All reports (combined)",
-  icon: "i-lucide-files",
-  build: (d) => {
-    const tables = REPORT_EXPORTS.map((r) => ({ label: r.label, t: r.build(d) }));
-    const width = Math.max(...tables.map(({ t }) => t.headers.length));
-    const rows: (string | number)[][] = [];
-    for (const { label, t } of tables) {
-      rows.push([label, ...t.headers]);
-      for (const r of t.rows) rows.push([label, ...r]);
-    }
-    return { headers: ["Report", ...Array.from({ length: width }, (_, i) => `Column ${i + 1}`)], rows };
-  },
-};
-
 export type ExportFormat = {
   id: string;
   label: string;
