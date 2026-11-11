@@ -3,7 +3,7 @@ definePageMeta({ layout: "dashboard", middleware: "auth" });
 
 type Customer = { id: string; name: string; email?: string; phone?: string; address?: string; taxNumber?: string; currency?: string; notes?: string };
 
-const { activeCompanyId, capi, cpost, cpatch, cdelete, cdownload } = useCompanyApi();
+const { activeCompanyId, capi, cpost, cpatch, cdelete } = useCompanyApi();
 const { currencies, isAdmin, ensure } = useCompany();
 
 const customers = ref<Customer[]>([]);
@@ -84,15 +84,6 @@ async function remove(c: Customer) {
   }
 }
 
-async function downloadStatement(c: Customer) {
-  error.value = "";
-  try {
-    await cdownload(`/customers/${c.id}/statement.pdf`, `${c.name.replace(/[^\w.-]+/g, "-").slice(0, 40)}-statement.pdf`);
-  } catch (e) {
-    error.value = errMsg(e, "Statement download failed");
-  }
-}
-
 watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 </script>
 
@@ -150,7 +141,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
       <template #actions-cell="{ row }">
         <div class="flex justify-end gap-1">
           <UButton size="xs" variant="ghost" :to="`/dashboard/invoices/new?customer=${row.original.id}`">New invoice</UButton>
-          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-file-down" aria-label="Statement PDF" @click="downloadStatement(row.original)" />
+          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-file-text" :to="`/dashboard/customers/${row.original.id}/statement`">Statement</UButton>
           <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit" @click="edit(row.original)" />
           <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Delete" @click="remove(row.original)" />
         </div>
