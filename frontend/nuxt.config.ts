@@ -4,6 +4,11 @@ export default defineNuxtConfig({
   future: {
     compatibilityVersion: 4,
   },
+  modules: ["@nuxt/ui"],
+  icon: {
+    // Small local SVG set (e.g. i-app-google) — no extra icon packages needed.
+    customCollections: [{ prefix: "app", dir: "./app/assets/icons" }],
+  },
   ssr: false,
   css: ["~/assets/css/main.css"],
   app: {
@@ -26,6 +31,14 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     apiProxy: process.env.NUXT_API_PROXY || "http://127.0.0.1:8787",
+    public: {
+      firebaseApiKey: process.env.NUXT_PUBLIC_FIREBASE_API_KEY || "",
+      firebaseAuthDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
+      firebaseProjectId: process.env.NUXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+      firebaseAppId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || "",
+      // Local dev only: e.g. http://localhost:9099 (see docker-compose.emulators.yml)
+      firebaseAuthEmulatorHost: process.env.NUXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "",
+    },
   },
   nitro: {
     routeRules: {
@@ -33,6 +46,8 @@ export default defineNuxtConfig({
         proxy:
           (process.env.NUXT_API_PROXY || "http://127.0.0.1:8787") + "/api/**",
       },
+      "/dashboard/**": { ssr: false },
+      "/app": { redirect: "/dashboard/login" },
     },
   },
   vite: {

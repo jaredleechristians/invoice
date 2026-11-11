@@ -1,0 +1,430 @@
+/*
+ * Anonymous invoice editor styles (pages/index.vue).
+ * Imported into the Tailwind "base" layer from main.css so Nuxt UI / Tailwind
+ * utilities always win on dashboard pages. Table rules are scoped to .invoice.
+ */
+:root {
+  --ink: #1a1f2e;
+  --muted: #5c6578;
+  --line: #e2e6ef;
+  --surface: #f6f7fa;
+  --accent: #0d6e6e;
+  --accent-soft: #e6f4f4;
+  --white: #ffffff;
+  --danger: #b42318;
+  --focus: rgba(13, 110, 110, 0.18);
+  --page-width: 210mm;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* The A4 sheet (print-only on /) keeps its own type. */
+.page {
+  font-family: "DM Sans", system-ui, sans-serif;
+  line-height: 1.45;
+  padding: 2rem 1rem 4rem;
+}
+
+.invoice {
+  color: var(--ink);
+  color-scheme: light;
+  max-width: var(--page-width);
+  margin: 0 auto;
+  background: var(--white);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 2px rgba(26, 31, 46, 0.04),
+    0 12px 40px rgba(26, 31, 46, 0.08);
+  overflow: hidden;
+}
+
+.invoice-inner {
+  padding: 2.75rem 2.75rem 2.5rem;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2rem;
+  align-items: start;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.company-name {
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.35rem;
+}
+
+.company-meta {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.doc-badge {
+  text-align: right;
+}
+
+.doc-type {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.doc-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 0.5rem;
+}
+
+.doc-meta {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.doc-meta-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  padding: 1.75rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.party-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.party-name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.party-details {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+
+.invoice table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin-top: 1.75rem;
+}
+
+.invoice thead th {
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.65rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.invoice thead th:first-child {
+  border-radius: 6px 0 0 6px;
+  padding-left: 1rem;
+}
+
+.invoice thead th:last-child {
+  border-radius: 0 6px 6px 0;
+  padding-right: 0.5rem;
+}
+
+.invoice thead th.num,
+.invoice tbody td.num {
+  text-align: right;
+}
+
+.invoice thead th.actions,
+.invoice tbody td.actions {
+  width: 36px;
+  padding: 0.5rem 0.35rem;
+}
+
+.invoice tbody td {
+  padding: 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.invoice tbody td:first-child {
+  padding-left: 1rem;
+}
+
+.item-desc {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.item-note,
+.field.item-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.field.item-note::placeholder {
+  color: #9aa3b5;
+}
+
+.line-actions {
+  margin-top: 0.85rem;
+}
+
+.btn-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  appearance: none;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.55rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn-add:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.btn-remove {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.btn-remove:hover {
+  background: #fdecea;
+  color: var(--danger);
+}
+
+.totals {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1.5rem;
+}
+
+.totals-box {
+  width: min(100%, 280px);
+}
+
+.totals-row.grand {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2rem;
+  padding-top: 0.75rem;
+  border-top: 2px solid var(--ink);
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 2rem;
+  margin-top: 2.5rem;
+  margin-bottom: 2.75rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.footer-block h3 {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.notes-field {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.6;
+  min-height: 4.5em;
+  white-space: pre-wrap;
+}
+
+.bank-details {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem 1.15rem;
+}
+
+.bank-details dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem 1rem;
+  font-size: 0.8125rem;
+  align-items: center;
+}
+
+.bank-details dt {
+  color: var(--muted);
+}
+
+.legal {
+  font-size: 0.6875rem;
+  color: #8a93a6;
+  text-align: center;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  min-height: 2.5em;
+  width: 100%;
+}
+
+.field {
+  display: block;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.1rem 0.25rem;
+  margin: -0.1rem -0.25rem;
+  outline: none;
+  resize: none;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.field.legal {
+  margin: 2.75rem -0.25rem 0;
+}
+
+.field:hover {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.field:focus {
+  border-color: var(--accent);
+  background: var(--white);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.field.num {
+  text-align: right;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+}
+
+.amount-cell {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  padding-top: 0.45rem;
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 1rem 0.75rem 3rem;
+  }
+
+  .invoice-inner {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .header,
+  .parties,
+  .footer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-badge {
+    text-align: left;
+  }
+
+  .doc-meta-row {
+    justify-content: flex-start;
+  }
+}
+
+.date-trigger {
+  cursor: pointer;
+  text-align: right;
+  width: auto;
+  min-width: 7rem;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Browser print of the editor page: just the paper. (PDF export renders its
+   own HTML via buildExportHtml and is unaffected.) */
+@media print {
+  body:has(main.page) {
+    background: #fff;
+  }
+  .page {
+    padding: 0;
+  }
+  .invoice {
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .line-actions,
+  .btn-remove,
+  th.actions,
+  td.actions {
+    display: none;
+  }
+}
+

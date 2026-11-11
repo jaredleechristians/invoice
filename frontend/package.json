@@ -1,6 +1,6 @@
 {
   "name": "invoice-web",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,6 +13,9 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@internationalized/date": "^3.12.4",
+    "@nuxt/ui": "^4.0.0",
+    "firebase": "^11.10.0",
     "nuxt": "^4.0.0",
     "vue": "^3.5.17",
     "vue-router": "^4.5.1"

@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// Tenant isolation: a user can only read data of companies where
+// companies/{companyId}/members/{uid} exists. ALL writes go through the
+// Express API (Firebase Admin SDK, which bypasses these rules), so the
+// browser can never write money records, numbering counters or memberships.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
+    }
+
+    function isMember(companyId) {
+      return signedIn() && exists(/databases/$(database)/documents/companies/$(companyId)/members/$(request.auth.uid));
+    }
+
+    function canAdmin(companyId) {
+      return isMember(companyId) && memberDoc(companyId).data.role in ['owner', 'admin'];
+    }
+
+    match /companies/{companyId} {
+      allow read: if isMember(companyId);
+      allow write: if false;
+
+      // Members can see who else is in their company.
+      match /members/{userId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
+      // Invite tokens are secrets: admins only.
+      match /invites/{inviteId} {
+        allow read: if canAdmin(companyId);
+        allow write: if false;
+      }
+
+      match /auditLog/{logId} {
+        allow read: if canAdmin(companyId);
+        allow write: if false;
+      }
+
+      // Business records (customers, products, invoices, quotes, payments,
+      // expenses, expenseCategories, expenseReceipts, counters, …):
+      // readable by members, written only by the server.
+      match /{collection}/{docId} {
+        allow read: if isMember(companyId)
+          && !(collection in ['members', 'invites', 'auditLog', 'assistantActions']);
+        allow write: if false;
+      }
+    }
+
+    // Anything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
