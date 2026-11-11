@@ -99,34 +99,36 @@ test("read-only keys block every write", async () => {
   }
 });
 
-test("read-write keys create drafts but can't publish, void, delete or change settings", async () => {
+test("read-write keys can publish, void and (soft) delete, but not change settings, members or bank accounts", async () => {
   const cust = await call(rwKey, "POST", `/companies/${co}/customers`, { name: "Via key" });
   assert.equal(cust.status, 201);
   const inv = await call(rwKey, "POST", `/companies/${co}/invoices`, { customerId, items: [{ description: "Work", qty: 1, unitPrice: 100 }] });
   assert.equal(inv.status, 201);
-  assert.equal(inv.data.draft, true, "invoices from a key are always drafts");
+  assert.equal(inv.data.draft, true, "drafts unless finalize: true is sent");
   assert.equal((await call(rwKey, "PATCH", `/companies/${co}/invoices/${inv.data.id}`, { notes: "ok" })).status, 200);
-  assert.equal((await call(rwKey, "PATCH", `/companies/${co}/invoices/${inv.data.id}`, { finalize: true })).status, 403);
-  assert.equal((await call(rwKey, "POST", `/companies/${co}/invoices`, { finalize: true, customerId, items: [{ description: "a", qty: 1, unitPrice: 1 }] })).status, 403);
-  assert.equal((await call(rwKey, "POST", `/companies/${co}/invoices/${inv.data.id}/finalize`)).status, 403);
-  assert.equal((await call(rwKey, "DELETE", `/companies/${co}/invoices/${inv.data.id}`)).status, 403);
-  assert.equal((await call(rwKey, "DELETE", `/companies/${co}/customers/${cust.data.id}`)).status, 403);
+  const pub = await call(rwKey, "POST", `/companies/${co}/invoices/${inv.data.id}/finalize`);
+  assert.equal(pub.status, 200, JSON.stringify(pub.data));
+  assert.equal(pub.data.draft, false);
+  assert.ok(pub.data.invoiceNumber);
+  const direct = await call(rwKey, "POST", `/companies/${co}/invoices`, { finalize: true, customerId, items: [{ description: "a", qty: 1, unitPrice: 10 }] });
+  assert.equal(direct.status, 201);
+  assert.equal(direct.data.draft, false);
+  assert.equal((await call(rwKey, "POST", `/companies/${co}/payments`, { invoiceId: pub.data.id, amount: 5, paidAt: "2026-11-01" })).status, 201);
+  assert.equal((await call(rwKey, "POST", `/companies/${co}/invoices/${direct.data.id}/void`, { reason: "test" })).status, 200);
+  assert.equal((await call(rwKey, "DELETE", `/companies/${co}/customers/${cust.data.id}`)).status, 200);
+  assert.equal((await call(rwKey, "GET", `/companies/${co}/customers`)).data.customers.some((c) => c.id === cust.data.id), false, "soft-deleted customer hidden");
+
   assert.equal((await call(rwKey, "PATCH", `/companies/${co}`, { name: "Hacked" })).status, 403);
   assert.equal((await call(rwKey, "POST", `/companies/${co}/invites`, { email: "x@example.com", role: "admin" })).status, 403);
   assert.equal((await call(rwKey, "GET", `/companies/${co}/invites`)).status, 403, "invite tokens stay hidden from keys");
+  assert.equal((await call(rwKey, "PATCH", `/companies/${co}/members/ana`, { role: "member" })).status, 403);
   assert.equal((await call(rwKey, "POST", `/companies/${co}/bank-accounts`, { name: "Mine" })).status, 403);
   assert.equal((await call(rwKey, "POST", `/companies/${co}/assistant`, { messages: [{ role: "user", content: "hi" }] })).status, 403);
-
-  // Published invoices can't be edited by a key.
-  const pub = await call(ANA, "POST", `/companies/${co}/invoices`, { finalize: true, customerId, items: [{ description: "a", qty: 1, unitPrice: 10 }] });
-  assert.equal((await call(rwKey, "PATCH", `/companies/${co}/invoices/${pub.data.id}`, { notes: "x" })).status, 403);
-  // Recording a payment is allowed (same as the assistant).
-  assert.equal((await call(rwKey, "POST", `/companies/${co}/payments`, { invoiceId: pub.data.id, amount: 5, paidAt: "2026-11-01" })).status, 201);
 
   // Writes through a key are audited with the key id.
   const logs = (await db.collection("companies").doc(co).collection("auditLog").get()).docs.map((d) => d.data());
   const viaKey = logs.filter((l) => l.apiKeyId === rwKeyId);
-  assert.ok(viaKey.length >= 3);
+  assert.ok(viaKey.some((l) => l.action === "invoice.finalize") && viaKey.some((l) => l.action === "customer.delete"));
   assert.ok(viaKey.every((l) => l.via === "api_key" && l.actorUid === "ana"));
 });
 

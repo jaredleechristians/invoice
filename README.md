@@ -114,8 +114,8 @@ Models that don't emit native tool calls can reply with `{"tool": "...", "argume
 Personal keys for scripts and integrations: **Settings > API keys**. Any member can create keys for themselves; owners and admins see and can revoke every key in the company.
 
 - A key works for one company and acts as the person who made it. Their membership and role are checked on every request, so removing someone stops their keys.
-- **Read only**: GET requests only. **Read & write**: also the writes the assistant can make (customers, products, expenses, draft invoices and quotes, edits to draft invoices, payments). Keys can never publish, void or delete, change settings, members, invites or bank accounts, use the assistant, or manage keys.
-- Invoices created with a key are always drafts. Writes are audit-logged with `via: "api_key"` and the `apiKeyId`.
+- **Read only**: GET requests only. **Read & write**: everything the key owner's role allows, including publish, void and delete (deletes are soft). Keys can never change company settings or bank accounts (their details print on invoices), members or invites, use the assistant, or manage keys.
+- Invoices created with a key are drafts unless the request sends `finalize: true`. Writes are audit-logged with `via: "api_key"` and the `apiKeyId`.
 - Format `inv_live_<43 chars>`. The full key is shown once. The server stores only an HMAC-SHA256 hash (keyed with `API_KEY_PEPPER`) and a short prefix. Optional expiry: 30, 90 or 365 days. 120 requests per key per minute (`API_KEY_RATE_LIMIT`).
 - Server setup: set `API_KEY_PEPPER` (at least 32 characters, e.g. `openssl rand -hex 32`). Without it, keys are disabled. Changing it invalidates all keys.
 
@@ -144,12 +144,12 @@ The API serves an [MCP](https://modelcontextprotocol.io) endpoint for AI assista
 ```
 
 **Tools.** Every key gets the read tools:
-`get_company`, `list_customers`, `get_customer`, `get_customer_statement`, `list_invoices`, `get_invoice`, `get_receivables` (outstanding per customer and aged buckets), `get_reports` (income, expenses and profit by month, category and customer), `list_expenses`, `list_expense_categories`, `list_payments`, `list_bank_accounts`, `list_bank_transactions`, `get_bank_transaction_suggestions`.
+`get_company`, `list_customers`, `get_customer`, `get_customer_statement`, `list_invoices`, `get_invoice`, `list_quotes`, `list_products`, `get_receivables` (outstanding per customer and aged buckets), `get_reports` (income, expenses and profit by month, category and customer), `list_expenses`, `list_expense_categories`, `list_payments`, `list_bank_accounts`, `list_bank_transactions`, `get_bank_transaction_suggestions`.
 
 **Read & write** keys also get:
-`create_customer`, `create_draft_invoice`, `update_draft_invoice`, `record_expense`, `record_payment` (published invoices only), `reconcile_bank_transaction` (match an invoice, payment or expense, create an expense, mark a transfer, or ignore).
+`create_customer`, `create_draft_invoice`, `update_draft_invoice`, `publish_invoice`, `void_invoice`, `record_expense`, `record_payment` (published invoices only), `void_payment`, `reconcile_bank_transaction` (match an invoice, payment or expense, create an expense, mark a transfer, or ignore), `undo_bank_transaction`, `delete_invoice`, `delete_quote`, `delete_customer`, `delete_product`, `delete_expense`, `delete_payment`, `delete_bank_import` (all soft deletes), `restore_record`.
 
-There are no publish, void or delete tools. Lists return `{ total, offset, items, nextOffset }` (25 rows by default, 100 at most). Writes are audit-logged with `via: "mcp"` and the `apiKeyId`. The key's rate limit applies.
+Void and delete need an owner or admin key, as in the app. No tools change settings, bank accounts, members, invites or API keys. Lists return `{ total, offset, items, nextOffset }` (25 rows by default, 100 at most). Writes are audit-logged with `via: "mcp"` and the `apiKeyId`. The key's rate limit applies.
 
 Quick check with curl:
 

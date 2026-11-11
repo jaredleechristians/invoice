@@ -3,13 +3,17 @@
  * API key. Built fresh per request (stateless Streamable HTTP).
  *
  * Read tools for every key; write tools only for read_write keys. Writes reuse
- * the normal service functions and their checks. No publish, void or delete.
+ * the normal service functions and their role checks (void and delete need an
+ * owner or admin). Deletes are soft and can be undone with restore_record.
  */
 const { z } = require("zod");
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { withAuditContext } = require("./audit");
 const { httpError } = require("./errors");
 const companies = require("./companies");
+const quotes = require("./quotes");
+const products = require("./products");
+const { restoreRecord, RESTORE_KINDS } = require("./restore");
 const customers = require("./customers");
 const invoices = require("./invoices");
 const payments = require("./payments");
@@ -65,9 +69,9 @@ function buildMcpServer(ctx) {
       }
     });
 
-  const write = (name, description, inputSchema, fn) => {
+  const write = (name, description, inputSchema, fn, { destructive = false } = {}) => {
     if (!canWrite) return;
-    server.registerTool(name, { description, inputSchema, annotations: { readOnlyHint: false, destructiveHint: false } }, async (args) => {
+    server.registerTool(name, { description, inputSchema, annotations: { readOnlyHint: false, destructiveHint: destructive } }, async (args) => {
       try {
         if (ctx.apiKey?.scope !== "read_write") throw httpError(403, "This API key is read only");
         return text(await withAuditContext({ via: "mcp", apiKeyId: ctx.apiKey.id }, () => fn(args || {})));
@@ -107,6 +111,16 @@ function buildMcpServer(ctx) {
   }, async (a) => {
     const rows = await invoices.listInvoices(ctx.companyId, { status: a.status, customerId: a.customerId, currency: a.currency, q: a.q });
     return page(rows.map((i) => pick(i, INVOICE_ROW)), a);
+  });
+
+  read("list_quotes", "Quotes, newest first.", { status: z.string().max(40).optional(), customerId: ID.optional(), q: z.string().max(100).optional(), ...PAGE }, async (a) => {
+    const rows = await quotes.listQuotes(ctx.companyId, { status: a.status, customerId: a.customerId, q: a.q });
+    return page(rows.map((x) => pick(x, ["id", "quoteNumber", "status", "customerId", "customerName", "currency", "issueDate", "validUntil", "total"])), a);
+  });
+
+  read("list_products", "Products and services with prices.", { ...PAGE }, async (a) => {
+    const rows = await products.listProducts(ctx.companyId);
+    return page(rows.map((x) => pick(x, ["id", "name", "kind", "unitPrice", "currency", "active"])), a);
   });
 
   read("get_invoice", "One invoice with its lines and totals.", { invoiceId: ID }, async (a) => {
@@ -169,7 +183,7 @@ function buildMcpServer(ctx) {
     address: z.string().max(1000).optional(), taxNumber: z.string().max(50).optional(), currency: CURRENCY.optional(), notes: z.string().max(2000).optional(),
   }, async (a) => pick(await customers.createCustomer(...who, a), ["id", "name", "email", "currency"]));
 
-  write("create_draft_invoice", "Create a DRAFT invoice (never published; publish it in the app).", {
+  write("create_draft_invoice", "Create a DRAFT invoice. Use publish_invoice to give it a number and issue it.", {
     customerId: ID, items: z.array(ITEM).min(1).max(100), issueDate: ISO.optional(), dueDate: ISO.optional(),
     currency: CURRENCY.optional(), reference: z.string().max(120).optional(), notes: z.string().max(2000).optional(),
   }, async (a) => {
@@ -212,6 +226,40 @@ function buildMcpServer(ctx) {
     const { transactionId, ...body } = a;
     const r = await bank.reconcile(...who, transactionId, body);
     return r?.transaction ? { transaction: pick(r.transaction, ["id", "status", "matchLabel"]) } : r;
+  });
+
+  write("publish_invoice", "Publish a draft invoice: allocates the next invoice number and freezes company details. Can't be undone (void instead).", { invoiceId: ID }, async (a) =>
+    pick(await invoices.finalizeInvoice(...who, a.invoiceId), INVOICE_ROW), { destructive: true });
+
+  write("void_invoice", "Void a published invoice (keeps its number; owners and admins only).", { invoiceId: ID, reason: z.string().max(500).optional() }, async (a) =>
+    pick(await invoices.voidInvoice(...who, a.invoiceId, { reason: a.reason }), INVOICE_ROW), { destructive: true });
+
+  write("void_payment", "Void a payment (it stays on record; owners and admins only).", { paymentId: ID, reason: z.string().max(500).optional() }, async (a) => {
+    const r = await payments.voidPayment(...who, a.paymentId, { reason: a.reason });
+    return { payment: pick(r.payment, ["id", "invoiceId", "amount", "voided"]), invoice: pick(r.invoice, INVOICE_ROW) };
+  }, { destructive: true });
+
+  const DELETERS = {
+    invoice: ["invoiceId", (id) => invoices.deleteInvoice(...who, id)],
+    quote: ["quoteId", (id) => quotes.deleteQuote(...who, id)],
+    customer: ["customerId", (id) => customers.deleteCustomer(...who, id)],
+    product: ["productId", (id) => products.deleteProduct(...who, id)],
+    expense: ["expenseId", (id) => expenses.deleteExpense(...who, id)],
+    payment: ["paymentId", (id) => payments.deletePayment(...who, id)],
+    bank_import: ["importId", (id) => bank.deleteImport(...who, id)],
+  };
+  for (const [kind, [field, del]] of Object.entries(DELETERS)) {
+    write(`delete_${kind}`, `Delete a ${kind.replace("_", " ")} (soft delete: hidden everywhere, undo with restore_record; owners and admins only).`, { [field]: ID }, async (a) => {
+      await del(a[field]);
+      return { deleted: true, [field]: a[field] };
+    }, { destructive: true });
+  }
+
+  write("restore_record", "Undo a soft delete.", { kind: z.enum(RESTORE_KINDS), id: ID }, (a) => restoreRecord(...who, a.kind, a.id));
+
+  write("undo_bank_transaction", "Undo a bank line's reconciliation (keeps any payment or expense it created).", { transactionId: ID }, async (a) => {
+    const r = await bank.undo(...who, a.transactionId, {});
+    return { transaction: pick(r.transaction, ["id", "status"]) };
   });
 
   return server;

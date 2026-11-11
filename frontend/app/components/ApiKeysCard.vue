@@ -28,7 +28,7 @@ const inactiveCount = computed(() => keys.value.filter((k) => k.status !== "acti
 
 const SCOPES = [
   { label: "Read only", value: "read" },
-  { label: "Read & write (drafts and records, no publish or delete)", value: "read_write" },
+  { label: "Read & write (also publish, void and delete)", value: "read_write" },
 ];
 const EXPIRY = [
   { label: "Never", value: "never" },
@@ -104,7 +104,8 @@ const when = (d: string | null) => (d ? formatDate(d.slice(0, 10)) : "Never");
       </div>
     </template>
     <p class="mb-4 text-sm text-muted">
-      For scripts and integrations. A key works only for this company and acts as you.
+      For scripts, integrations and the MCP server. A key works only for this company and acts as you.
+      Keys can't change settings, bank accounts or members.
       <template v-if="isAdmin">You see everyone's keys and can revoke them.</template>
       Company ID: <code class="text-xs">{{ activeCompanyId }}</code>
     </p>

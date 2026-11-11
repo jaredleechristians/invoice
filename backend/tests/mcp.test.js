@@ -67,7 +67,7 @@ test("read key: read tools only, real data", async () => {
   const client = await httpClient(readKey);
   const names = (await client.listTools()).tools.map((t) => t.name);
   assert.ok(names.includes("list_invoices") && names.includes("get_receivables") && names.includes("get_reports"));
-  assert.ok(!names.some((n) => /^(create|update|record|reconcile)_/.test(n)), "no write tools for read keys");
+  assert.ok(!names.some((n) => /^(create|update|record|reconcile|publish|void|delete|restore|undo)_/.test(n)), "no write tools for read keys");
   assert.ok(!names.some((n) => /publish|void|delete|finalize/.test(n)));
 
   const inv = json(await client.callTool({ name: "list_invoices", arguments: { limit: 1 } }));
@@ -81,7 +81,7 @@ test("read key: read tools only, real data", async () => {
   assert.equal(company.bankAccounts, undefined);
   for (const [name, args] of [
     ["get_reports", { from: "2026-01-01", to: "2026-12-31" }], ["list_expenses", {}], ["list_expense_categories", {}], ["list_payments", {}],
-    ["list_bank_accounts", {}], ["list_bank_transactions", { status: "unreconciled" }], ["list_customers", {}],
+    ["list_bank_accounts", {}], ["list_quotes", {}], ["list_products", {}], ["list_bank_transactions", { status: "unreconciled" }], ["list_customers", {}],
     ["get_customer", { customerId }], ["get_invoice", { invoiceId: publishedId }], ["get_customer_statement", { customerId, from: "2026-01-01", to: "2026-12-31" }],
   ]) {
     const r = await client.callTool({ name, arguments: args });
@@ -94,11 +94,14 @@ test("read key: read tools only, real data", async () => {
   await client.close();
 });
 
-test("read-write key: drafts, payments, audit with key id; never publishes", async () => {
+test("read-write key: drafts, publish, payments, soft delete and restore, audit with key id", async () => {
   const client = await httpClient(rwKey);
-  const names = (await client.listTools()).tools.map((t) => t.name);
-  assert.ok(["create_customer", "create_draft_invoice", "update_draft_invoice", "record_expense", "record_payment", "reconcile_bank_transaction"].every((n) => names.includes(n)));
-  assert.ok(!names.some((n) => /publish|void|delete|finalize/.test(n)));
+  const tools = (await client.listTools()).tools;
+  const names = tools.map((t) => t.name);
+  assert.ok(["create_customer", "create_draft_invoice", "update_draft_invoice", "record_expense", "record_payment", "reconcile_bank_transaction",
+    "publish_invoice", "void_invoice", "void_payment", "delete_invoice", "delete_customer", "restore_record"].every((n) => names.includes(n)));
+  assert.equal(tools.find((t) => t.name === "delete_invoice").annotations.destructiveHint, true);
+  assert.ok(!names.some((n) => /api_key|member|setting|company_delete/.test(n)));
 
   const draft = json(await client.callTool({ name: "create_draft_invoice", arguments: { customerId, items: [{ description: "Design", qty: 3, unitPrice: 100 }] } }));
   assert.equal(draft.draft, true);
@@ -119,9 +122,22 @@ test("read-write key: drafts, payments, audit with key id; never publishes", asy
   const owed = json(await client.callTool({ name: "get_receivables", arguments: {} }));
   assert.equal(owed.byCustomer[0].outstanding, 600);
 
+  const published = json(await client.callTool({ name: "publish_invoice", arguments: { invoiceId: draft.id } }));
+  assert.equal(published.draft, false);
+  assert.ok(published.invoiceNumber);
+  assert.equal(json(await client.callTool({ name: "get_receivables", arguments: {} })).byCustomer[0].outstanding, 900);
+
+  const temp = json(await client.callTool({ name: "create_customer", arguments: { name: "Temp" } }));
+  assert.deepEqual(json(await client.callTool({ name: "delete_customer", arguments: { customerId: temp.id } })), { deleted: true, customerId: temp.id });
+  assert.ok(!json(await client.callTool({ name: "list_customers", arguments: {} })).items.some((c) => c.id === temp.id));
+  assert.equal((await client.callTool({ name: "get_customer", arguments: { customerId: temp.id } })).isError, true);
+  assert.ok(!json(await client.callTool({ name: "restore_record", arguments: { kind: "customer", id: temp.id } })).isError);
+  assert.ok(json(await client.callTool({ name: "list_customers", arguments: {} })).items.some((c) => c.id === temp.id));
+
   const logs = (await db.collection("companies").doc(co).collection("auditLog").get()).docs.map((d) => d.data());
   const viaMcp = logs.filter((l) => l.via === "mcp");
   assert.ok(viaMcp.length >= 3);
+  assert.ok(viaMcp.some((l) => l.action === "invoice.finalize") && viaMcp.some((l) => l.action === "customer.delete"));
   assert.ok(viaMcp.every((l) => l.apiKeyId === rwKeyId));
   await client.close();
 });
