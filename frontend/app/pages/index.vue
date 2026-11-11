@@ -37,8 +37,7 @@ onMounted(() => {
         <PageHeader title="New invoice">
           <template #filters>
             <p class="text-sm text-muted">
-              Saved in this browser only —
-              <ULink to="/dashboard/login" class="text-primary font-medium">sign in</ULink> to keep invoices, customers and payments.
+              <ULink to="/dashboard/login" class="text-primary font-medium">Sign in</ULink> to keep invoices, customers and payments.
             </p>
           </template>
           <UButton
