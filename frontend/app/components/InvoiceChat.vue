@@ -14,9 +14,9 @@ const history = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const bubbles = ref<ChatBubble[]>([])
 
 const suggestions = [
-  "Bill Acme Pty Ltd, Cape Town, 10 hours design at R850",
+  "Bill Acme Pty Ltd for 10 hours of design",
   "Make it due in 30 days",
-  "Add a line: hosting, 12 months at R150",
+  "Add a hosting line for 12 months",
 ]
 
 function ask(text: string) {
@@ -180,7 +180,7 @@ async function sendMessage() {
           :rows="2"
           autoresize
           :maxrows="8"
-          placeholder="e.g. Bill Acme Pty Ltd, Cape Town — 10 hours design at R850"
+          placeholder="e.g. Bill Acme Pty Ltd for 10 hours of design"
           :disabled="sending"
           @keydown.meta.enter.prevent="sendMessage"
           @keydown.ctrl.enter.prevent="sendMessage"
