@@ -61,7 +61,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Invoices</h1>
-        <p class="text-neutral-400 text-sm mt-1">Drafts get a number when you finalize them.</p>
+        <p class="text-muted text-sm mt-1">Drafts get a number when you finalize them.</p>
       </div>
       <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">New invoice</UButton>
     </div>
@@ -75,9 +75,9 @@ watch(activeCompanyId, load, { immediate: true });
       <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" @click="load" />
     </div>
 
-    <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-neutral-800">
+    <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-default">
       <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase tracking-wide text-neutral-500 bg-neutral-900/60">
+        <thead class="text-left text-xs uppercase tracking-wide text-dimmed bg-elevated/60">
           <tr>
             <th class="px-4 py-2">Number</th>
             <th class="px-4 py-2">Customer</th>
@@ -88,17 +88,17 @@ watch(activeCompanyId, load, { immediate: true });
             <th class="px-4 py-2">Status</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800">
+        <tbody class="divide-y divide-default">
           <tr
             v-for="inv in filtered"
             :key="inv.id"
-            class="hover:bg-neutral-900/60 cursor-pointer"
+            class="hover:bg-elevated/60 cursor-pointer"
             @click="navigateTo(`/dashboard/invoices/${inv.id}`)"
           >
             <td class="px-4 py-2.5 font-medium">{{ inv.invoiceNumber || "Draft" }}</td>
-            <td class="px-4 py-2.5 text-neutral-300">{{ inv.customerName || "—" }}</td>
-            <td class="px-4 py-2.5 text-neutral-400">{{ formatDate(inv.issueDateIso) }}</td>
-            <td class="px-4 py-2.5 text-neutral-400">{{ inv.dueDateIso ? formatDate(inv.dueDateIso) : inv.dueDate || "—" }}</td>
+            <td class="px-4 py-2.5 text-toned">{{ inv.customerName || "—" }}</td>
+            <td class="px-4 py-2.5 text-muted">{{ formatDate(inv.issueDateIso) }}</td>
+            <td class="px-4 py-2.5 text-muted">{{ inv.dueDateIso ? formatDate(inv.dueDateIso) : inv.dueDate || "—" }}</td>
             <td class="px-4 py-2.5 text-right tabular-nums">{{ formatCurrency(inv.total, inv.currency) }}</td>
             <td class="px-4 py-2.5 text-right tabular-nums">{{ inv.outstanding > 0 ? formatCurrency(inv.outstanding, inv.currency) : "—" }}</td>
             <td class="px-4 py-2.5">
@@ -108,6 +108,6 @@ watch(activeCompanyId, load, { immediate: true });
         </tbody>
       </table>
     </div>
-    <p v-else-if="!loading" class="text-neutral-500 text-sm">No invoices match.</p>
+    <p v-else-if="!loading" class="text-dimmed text-sm">No invoices match.</p>
   </div>
 </template>

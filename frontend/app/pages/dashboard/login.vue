@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { ButtonProps } from "@nuxt/ui";
-
 definePageMeta({ layout: "login", middleware: "guest" });
 
 const route = useRoute();
@@ -66,87 +64,94 @@ watch(
     navigateTo(redirectTarget());
   }
 );
-
-const providers = computed<ButtonProps[]>(() => [
-  {
-    label: "Continue with Google",
-    icon: "i-app-google",
-    size: "lg",
-    loading: signingIn.value,
-    disabled: !configured.value || signingIn.value,
-    onClick: onSignIn,
-  },
-]);
 </script>
 
 <template>
-  <UPageCard class="w-full max-w-md" variant="subtle">
-    <UAuthForm
-      icon="i-lucide-receipt-text"
-      title="Sign in to Invoice"
-      description="Your company workspace for invoices, quotes, payments, expenses and reports."
-      :providers="providers"
-    >
-      <template #footer>
-        <div class="space-y-4">
-          <UAlert
-            v-if="error"
-            color="error"
-            variant="subtle"
-            icon="i-lucide-circle-alert"
-            title="Sign-in failed"
-            :description="error"
-            :close="{ color: 'error', variant: 'link' }"
-            @update:open="error = ''"
-          />
+  <UCard
+    class="w-full max-w-sm shadow-xl shadow-black/5 dark:shadow-black/30"
+    :ui="{ body: 'p-6 sm:p-8' }"
+  >
+    <div class="flex flex-col items-center text-center">
+      <div class="flex size-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+        <UIcon name="i-lucide-receipt-text" class="size-6 text-primary" />
+      </div>
+      <h1 class="mt-4 text-xl font-semibold text-highlighted">Sign in to Invoice</h1>
+    </div>
 
-          <UAlert
-            v-if="configured && usingEmulator"
-            color="info"
-            variant="subtle"
-            icon="i-lucide-flask-conical"
-            title="Local emulator"
-            description="Sign-in uses the Firebase Auth emulator, so a test account picker opens instead of Google."
-          />
+    <div class="mt-6 space-y-4">
+      <UAlert
+        v-if="error"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-circle-alert"
+        title="Sign-in failed"
+        :description="error"
+        :close="{ color: 'error', variant: 'link' }"
+        @update:open="error = ''"
+      />
 
-          <UAlert
-            v-if="!configured"
-            color="warning"
-            variant="subtle"
-            icon="i-lucide-triangle-alert"
-            title="Firebase is not configured yet"
-          >
-            <template #description>
-              <div class="space-y-2 text-sm">
-                <p>
-                  Add your Firebase <strong>web app</strong> config to <code>.env</code>, enable
-                  <strong>Google</strong> as a sign-in provider in the Firebase console, then restart:
-                </p>
-                <p class="font-mono text-xs">docker compose up -d --build web api</p>
-                <div v-if="missingPublic.length">
-                  Missing:
-                  <ul class="list-disc pl-5 mt-1 space-y-0.5">
-                    <li v-for="item in missingPublic" :key="item.key">
-                      <code>{{ item.key }}</code> ({{ item.label }})
-                    </li>
-                  </ul>
-                </div>
-                <p class="text-muted">
-                  The API also needs <code>FIREBASE_PROJECT_ID</code> and
-                  <code>FIREBASE_SERVICE_ACCOUNT_JSON</code>. For local testing without credentials,
-                  use <code>docker-compose.emulators.yml</code>. See <code>.env.example</code>.
-                </p>
-              </div>
-            </template>
-          </UAlert>
+      <UButton
+        block
+        size="lg"
+        color="neutral"
+        variant="outline"
+        icon="i-app-google"
+        label="Continue with Google"
+        :loading="signingIn"
+        :disabled="!configured || signingIn"
+        @click="onSignIn"
+      />
 
-          <USeparator label="or" />
+      <UAlert
+        v-if="configured && usingEmulator"
+        color="info"
+        variant="subtle"
+        icon="i-lucide-flask-conical"
+        title="Local emulator"
+        description="Sign-in uses the Firebase Auth emulator, so a test account picker opens instead of Google."
+      />
 
-          <UButton to="/" block variant="ghost" color="neutral" icon="i-lucide-file-pen">
-            Continue without an account
-          </UButton>
-        </div>
-      </template>
-    </UAuthForm>
-  </UPageCard>
+      <UAlert
+        v-if="!configured"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Firebase is not configured yet"
+      >
+        <template #description>
+          <div class="space-y-2 text-sm">
+            <p>
+              Add your Firebase <strong>web app</strong> config to <code>.env</code>, enable
+              <strong>Google</strong> as a sign-in provider in the Firebase console, then restart:
+            </p>
+            <p class="font-mono text-xs">docker compose up -d --build web api</p>
+            <div v-if="missingPublic.length">
+              Missing:
+              <ul class="list-disc pl-5 mt-1 space-y-0.5">
+                <li v-for="item in missingPublic" :key="item.key">
+                  <code>{{ item.key }}</code> ({{ item.label }})
+                </li>
+              </ul>
+            </div>
+            <p class="text-muted">
+              The API also needs <code>FIREBASE_PROJECT_ID</code> and
+              <code>FIREBASE_SERVICE_ACCOUNT_JSON</code>. See <code>.env.example</code>.
+            </p>
+          </div>
+        </template>
+      </UAlert>
+
+      <USeparator label="or" />
+
+      <UButton
+        to="/"
+        block
+        size="lg"
+        color="neutral"
+        variant="soft"
+        icon="i-lucide-file-pen"
+        label="Continue without an account"
+      />
+    </div>
+  </UCard>
 </template>

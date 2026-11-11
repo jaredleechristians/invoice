@@ -36,8 +36,8 @@ async function accept() {
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UCard v-if="preview">
       <h1 class="text-xl font-semibold">Join {{ preview.companyName || "company" }}</h1>
-      <p class="text-sm text-neutral-400 mt-2">You've been invited as <strong>{{ preview.role }}</strong>.</p>
-      <p v-if="preview.email" class="text-xs text-neutral-500 mt-1">This invite is for {{ preview.email }}.</p>
+      <p class="text-sm text-muted mt-2">You've been invited as <strong>{{ preview.role }}</strong>.</p>
+      <p v-if="preview.email" class="text-xs text-dimmed mt-1">This invite is for {{ preview.email }}.</p>
       <UAlert v-if="preview.expired" class="mt-3" color="warning" variant="subtle" title="This invite has expired. Ask for a new one." />
       <UButton v-else class="mt-4" :loading="accepting" @click="accept">Accept invite</UButton>
     </UCard>

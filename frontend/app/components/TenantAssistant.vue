@@ -64,9 +64,9 @@ async function sendMessage() {
             :key="i"
             class="rounded-lg px-3 py-2"
             :class="{
-              'bg-neutral-800': b.role === 'user',
-              'bg-neutral-900 border border-neutral-800': b.role === 'assistant',
-              'text-neutral-500': b.role === 'system',
+              'bg-accented': b.role === 'user',
+              'bg-elevated border border-default': b.role === 'assistant',
+              'text-dimmed': b.role === 'system',
               'text-red-400': b.role === 'error',
             }"
           >

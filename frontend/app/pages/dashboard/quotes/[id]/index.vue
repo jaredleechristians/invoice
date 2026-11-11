@@ -71,7 +71,7 @@ watch([activeCompanyId, id], load, { immediate: true });
           <h1 class="text-2xl font-semibold">{{ quote?.quoteNumber || "Quote" }}</h1>
           <UBadge v-if="quote" :color="STATUS_COLORS[quote.displayStatus] || 'neutral'" variant="subtle">{{ statusLabel(quote.displayStatus) }}</UBadge>
         </div>
-        <p v-if="quote" class="text-neutral-400 text-sm mt-1">
+        <p v-if="quote" class="text-muted text-sm mt-1">
           {{ quote.customerName || "No customer" }} · {{ quote.currency }} · {{ formatDate(quote.issueDateIso) }} · valid until {{ formatDate(quote.expiryDateIso) }}
         </p>
       </div>
@@ -97,15 +97,15 @@ watch([activeCompanyId, id], load, { immediate: true });
     </div>
 
     <UCard v-if="quote">
-      <p class="text-xs uppercase tracking-wide text-neutral-500 mb-1">Prepared for</p>
+      <p class="text-xs uppercase tracking-wide text-dimmed mb-1">Prepared for</p>
       <p class="whitespace-pre-wrap text-sm">{{ quote.billTo || quote.customerName }}</p>
       <table class="w-full text-sm mt-6">
-        <thead class="text-left text-xs uppercase text-neutral-500">
+        <thead class="text-left text-xs uppercase text-dimmed">
           <tr><th class="py-1">Description</th><th class="py-1 text-right">Qty</th><th class="py-1 text-right">Unit</th><th class="py-1 text-right">Amount</th></tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800">
+        <tbody class="divide-y divide-default">
           <tr v-for="(item, i) in quote.items || []" :key="i">
-            <td class="py-2"><p class="font-medium">{{ item.description }}</p><p v-if="item.note" class="text-neutral-500 whitespace-pre-wrap">{{ item.note }}</p></td>
+            <td class="py-2"><p class="font-medium">{{ item.description }}</p><p v-if="item.note" class="text-dimmed whitespace-pre-wrap">{{ item.note }}</p></td>
             <td class="py-2 text-right tabular-nums">{{ item.qty }}</td>
             <td class="py-2 text-right tabular-nums">{{ formatCurrency(item.unitPrice, quote.currency) }}</td>
             <td class="py-2 text-right tabular-nums">{{ formatCurrency(lineTotal(item), quote.currency) }}</td>
@@ -119,7 +119,7 @@ watch([activeCompanyId, id], load, { immediate: true });
           <div class="flex justify-between font-semibold"><span>Total</span><span class="tabular-nums">{{ formatCurrency(quote.total, quote.currency) }}</span></div>
         </div>
       </div>
-      <p v-if="quote.notes" class="mt-6 text-sm text-neutral-400 whitespace-pre-wrap">{{ quote.notes }}</p>
+      <p v-if="quote.notes" class="mt-6 text-sm text-muted whitespace-pre-wrap">{{ quote.notes }}</p>
     </UCard>
   </div>
 </template>

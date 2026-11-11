@@ -58,7 +58,7 @@ watch([activeCompanyId, () => user.value?.uid, ready], () => loadPreview());
   <div class="space-y-6 max-w-2xl">
     <div>
       <h1 class="text-2xl font-semibold">Import local invoice</h1>
-      <p class="text-neutral-400 text-sm mt-1">
+      <p class="text-muted text-sm mt-1">
         Copy your anonymous editor invoice into the active company (assigns a new invoice number).
       </p>
     </div>
@@ -68,8 +68,8 @@ watch([activeCompanyId, () => user.value?.uid, ready], () => loadPreview());
 
     <UCard v-if="preview">
       <p class="font-medium">{{ preview.billTo.name }}</p>
-      <p class="text-sm text-neutral-400 mt-1">{{ preview.items.length }} line items</p>
-      <p class="text-sm text-neutral-500 mt-2">Local number: {{ preview.invoiceNumber }}</p>
+      <p class="text-sm text-muted mt-1">{{ preview.items.length }} line items</p>
+      <p class="text-sm text-dimmed mt-2">Local number: {{ preview.invoiceNumber }}</p>
       <div class="mt-4 flex gap-2">
         <UButton :loading="importing" :disabled="!activeCompanyId" @click="importToCompany">
           Import to company

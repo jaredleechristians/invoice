@@ -98,7 +98,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Members</h1>
-        <p class="text-neutral-400 text-sm mt-1">Owners and admins manage settings and members. Members can create invoices, quotes, payments and expenses.</p>
+        <p class="text-muted text-sm mt-1">Owners and admins manage settings and members. Members can create invoices, quotes, payments and expenses.</p>
       </div>
       <UButton to="/dashboard/settings" variant="ghost" color="neutral">Settings</UButton>
     </div>
@@ -108,11 +108,11 @@ watch(activeCompanyId, load, { immediate: true });
 
     <UCard>
       <template #header><span class="font-medium">People</span></template>
-      <div class="divide-y divide-neutral-800">
+      <div class="divide-y divide-default">
         <div v-for="m in members" :key="m.id" class="flex flex-wrap items-center gap-3 py-2.5">
           <div class="flex-1 min-w-48">
-            <p class="font-medium">{{ m.email || m.id }} <span v-if="m.id === user?.uid" class="text-neutral-500 text-xs">(you)</span></p>
-            <p class="text-xs text-neutral-500">Joined {{ new Date(m.joinedAt).toLocaleDateString("en-ZA") }}</p>
+            <p class="font-medium">{{ m.email || m.id }} <span v-if="m.id === user?.uid" class="text-dimmed text-xs">(you)</span></p>
+            <p class="text-xs text-dimmed">Joined {{ new Date(m.joinedAt).toLocaleDateString("en-ZA") }}</p>
           </div>
           <div class="w-32">
             <NSelect
@@ -147,7 +147,7 @@ watch(activeCompanyId, load, { immediate: true });
         </UFormField>
         <UButton type="submit" :loading="creating">Create invite link</UButton>
       </form>
-      <p class="text-xs text-neutral-500 mt-3">Invites are not emailed yet — copy the link and send it yourself. Links expire after 7 days.</p>
+      <p class="text-xs text-dimmed mt-3">Invites are not emailed yet — copy the link and send it yourself. Links expire after 7 days.</p>
       <div v-if="lastLink" class="mt-3 flex gap-2 items-center">
         <UInput :model-value="lastLink" readonly class="flex-1 font-mono text-xs" />
         <UButton size="xs" variant="soft" @click="copy(lastLink)">Copy</UButton>
@@ -156,11 +156,11 @@ watch(activeCompanyId, load, { immediate: true });
 
     <UCard v-if="isAdmin && invites.length">
       <template #header><span class="font-medium">Pending invites</span></template>
-      <div class="divide-y divide-neutral-800">
+      <div class="divide-y divide-default">
         <div v-for="i in invites" :key="i.id" class="flex flex-wrap items-center gap-3 py-2.5 text-sm">
           <div class="flex-1 min-w-48">
             <p>{{ i.email || "Anyone with the link" }} · {{ i.role }}</p>
-            <p class="text-xs" :class="i.expired ? 'text-red-400' : 'text-neutral-500'">
+            <p class="text-xs" :class="i.expired ? 'text-red-400' : 'text-dimmed'">
               {{ i.expired ? "Expired" : "Expires" }} {{ new Date(i.expiresAt).toLocaleString("en-ZA") }}
             </p>
           </div>

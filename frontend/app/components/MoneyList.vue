@@ -25,6 +25,6 @@ const entries = computed(() =>
         {{ formatCurrency(amount, cur) }}
       </p>
     </template>
-    <p v-else class="text-neutral-500" :class="size === 'lg' ? 'text-2xl' : 'text-sm'">{{ empty }}</p>
+    <p v-else class="text-dimmed" :class="size === 'lg' ? 'text-2xl' : 'text-sm'">{{ empty }}</p>
   </div>
 </template>

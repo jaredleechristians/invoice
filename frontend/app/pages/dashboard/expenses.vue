@@ -175,7 +175,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Expenses</h1>
-        <p class="text-neutral-400 text-sm mt-1">Money out. Amounts stay in the currency you paid in.</p>
+        <p class="text-muted text-sm mt-1">Money out. Amounts stay in the currency you paid in.</p>
       </div>
       <UButton variant="soft" color="neutral" icon="i-lucide-tags" @click="showCategories = !showCategories">Categories</UButton>
     </div>
@@ -188,8 +188,8 @@ watch(activeCompanyId, load, { immediate: true });
         <UBadge v-for="c in categories" :key="c.id" variant="subtle" color="neutral" class="gap-1">
           {{ c.name }}
           <template v-if="isAdmin">
-            <button class="ml-1 text-neutral-400 hover:text-white" title="Rename" @click="renameCategory(c)">✎</button>
-            <button class="text-neutral-400 hover:text-red-400" title="Delete" @click="deleteCategory(c)">×</button>
+            <button class="ml-1 text-muted hover:text-white" title="Rename" @click="renameCategory(c)">✎</button>
+            <button class="text-muted hover:text-red-400" title="Delete" @click="deleteCategory(c)">×</button>
           </template>
         </UBadge>
       </div>
@@ -233,21 +233,21 @@ watch(activeCompanyId, load, { immediate: true });
       <UFormField label="Currency" class="w-28"><NSelect v-model="filters.currency" placeholder="All" :options="currencies.map((c) => ({ label: c, value: c }))" /></UFormField>
       <UButton variant="soft" @click="load">Apply</UButton>
       <div class="ml-auto text-right">
-        <p class="text-xs text-neutral-500">Total shown</p>
+        <p class="text-xs text-dimmed">Total shown</p>
         <MoneyList :value="totals" size="sm" />
       </div>
     </div>
 
-    <div v-if="expenses.length" class="overflow-x-auto rounded-lg border border-neutral-800">
+    <div v-if="expenses.length" class="overflow-x-auto rounded-lg border border-default">
       <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase tracking-wide text-neutral-500 bg-neutral-900/60">
+        <thead class="text-left text-xs uppercase tracking-wide text-dimmed bg-elevated/60">
           <tr><th class="px-4 py-2">Date</th><th class="px-4 py-2">Vendor</th><th class="px-4 py-2">Category</th><th class="px-4 py-2 text-right">Amount</th><th class="px-4 py-2" /></tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800">
+        <tbody class="divide-y divide-default">
           <tr v-for="e in expenses" :key="e.id">
             <td class="px-4 py-2.5 whitespace-nowrap">{{ formatDate(e.date) }}</td>
-            <td class="px-4 py-2.5">{{ e.vendor || "—" }}<span v-if="e.notes" class="block text-xs text-neutral-500 line-clamp-1">{{ e.notes }}</span></td>
-            <td class="px-4 py-2.5 text-neutral-400">{{ e.categoryName }}</td>
+            <td class="px-4 py-2.5">{{ e.vendor || "—" }}<span v-if="e.notes" class="block text-xs text-dimmed line-clamp-1">{{ e.notes }}</span></td>
+            <td class="px-4 py-2.5 text-muted">{{ e.categoryName }}</td>
             <td class="px-4 py-2.5 text-right tabular-nums">{{ formatCurrency(e.amount, e.currency) }}</td>
             <td class="px-4 py-2.5 text-right whitespace-nowrap">
               <UButton v-if="e.receipt" size="xs" variant="ghost" icon="i-lucide-paperclip" @click="viewReceipt(e)" />
@@ -258,6 +258,6 @@ watch(activeCompanyId, load, { immediate: true });
         </tbody>
       </table>
     </div>
-    <p v-else class="text-sm text-neutral-500">No expenses in this view.</p>
+    <p v-else class="text-sm text-dimmed">No expenses in this view.</p>
   </div>
 </template>

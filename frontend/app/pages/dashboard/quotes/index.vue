@@ -41,7 +41,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Quotes</h1>
-        <p class="text-neutral-400 text-sm mt-1">Estimates you can send and convert into invoices.</p>
+        <p class="text-muted text-sm mt-1">Estimates you can send and convert into invoices.</p>
       </div>
       <UButton to="/dashboard/quotes/new" icon="i-lucide-plus">New quote</UButton>
     </div>
@@ -52,23 +52,23 @@ watch(activeCompanyId, load, { immediate: true });
         <NSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: s, value: s }))" />
       </div>
     </div>
-    <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-neutral-800">
+    <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-default">
       <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase tracking-wide text-neutral-500 bg-neutral-900/60">
+        <thead class="text-left text-xs uppercase tracking-wide text-dimmed bg-elevated/60">
           <tr><th class="px-4 py-2">Number</th><th class="px-4 py-2">Customer</th><th class="px-4 py-2">Date</th><th class="px-4 py-2">Valid until</th><th class="px-4 py-2 text-right">Total</th><th class="px-4 py-2">Status</th></tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800">
-          <tr v-for="x in filtered" :key="x.id" class="hover:bg-neutral-900/60 cursor-pointer" @click="navigateTo(`/dashboard/quotes/${x.id}`)">
+        <tbody class="divide-y divide-default">
+          <tr v-for="x in filtered" :key="x.id" class="hover:bg-elevated/60 cursor-pointer" @click="navigateTo(`/dashboard/quotes/${x.id}`)">
             <td class="px-4 py-2.5 font-medium">{{ x.quoteNumber }}</td>
-            <td class="px-4 py-2.5 text-neutral-300">{{ x.customerName || "—" }}</td>
-            <td class="px-4 py-2.5 text-neutral-400">{{ formatDate(x.issueDateIso) }}</td>
-            <td class="px-4 py-2.5 text-neutral-400">{{ formatDate(x.expiryDateIso) }}</td>
+            <td class="px-4 py-2.5 text-toned">{{ x.customerName || "—" }}</td>
+            <td class="px-4 py-2.5 text-muted">{{ formatDate(x.issueDateIso) }}</td>
+            <td class="px-4 py-2.5 text-muted">{{ formatDate(x.expiryDateIso) }}</td>
             <td class="px-4 py-2.5 text-right tabular-nums">{{ formatCurrency(x.total, x.currency) }}</td>
             <td class="px-4 py-2.5"><UBadge :color="STATUS_COLORS[x.displayStatus] || 'neutral'" variant="subtle">{{ statusLabel(x.displayStatus) }}</UBadge></td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p v-else-if="!loading" class="text-neutral-500 text-sm">No quotes yet.</p>
+    <p v-else-if="!loading" class="text-dimmed text-sm">No quotes yet.</p>
   </div>
 </template>

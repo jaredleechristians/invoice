@@ -97,7 +97,7 @@ watch([activeCompanyId, id], load, { immediate: true });
           <h1 class="text-2xl font-semibold">{{ invoice?.invoiceNumber || "Draft invoice" }}</h1>
           <UBadge v-if="invoice" :color="STATUS_COLORS[invoice.status] || 'neutral'" variant="subtle">{{ statusLabel(invoice.status) }}</UBadge>
         </div>
-        <p v-if="invoice" class="text-neutral-400 text-sm mt-1">
+        <p v-if="invoice" class="text-muted text-sm mt-1">
           {{ invoice.customerName || "No customer" }} · {{ invoice.currency }} · issued {{ formatDate(invoice.issueDateIso) }}
           <template v-if="invoice.dueDate"> · due {{ invoice.dueDateIso ? formatDate(invoice.dueDateIso) : invoice.dueDate }}</template>
         </p>
@@ -119,15 +119,15 @@ watch([activeCompanyId, id], load, { immediate: true });
 
     <div v-if="invoice" class="grid gap-4 md:grid-cols-3">
       <UCard>
-        <p class="text-sm text-neutral-400">Total</p>
+        <p class="text-sm text-muted">Total</p>
         <p class="text-2xl font-semibold tabular-nums">{{ formatCurrency(invoice.total, invoice.currency) }}</p>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Paid</p>
+        <p class="text-sm text-muted">Paid</p>
         <p class="text-2xl font-semibold tabular-nums">{{ formatCurrency(invoice.paidAmount, invoice.currency) }}</p>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Outstanding</p>
+        <p class="text-sm text-muted">Outstanding</p>
         <p class="text-2xl font-semibold tabular-nums" :class="invoice.overdue ? 'text-red-400' : ''">{{ formatCurrency(invoice.outstanding, invoice.currency) }}</p>
         <p v-if="invoice.overdue" class="text-xs text-red-400 mt-1">{{ invoice.daysOverdue }} days overdue</p>
       </UCard>
@@ -139,23 +139,23 @@ watch([activeCompanyId, id], load, { immediate: true });
       <template #header><span class="font-medium">Details</span></template>
       <div class="grid gap-6 md:grid-cols-2 text-sm">
         <div>
-          <p class="text-xs uppercase tracking-wide text-neutral-500 mb-1">Bill to</p>
+          <p class="text-xs uppercase tracking-wide text-dimmed mb-1">Bill to</p>
           <p class="whitespace-pre-wrap">{{ invoice.billTo || invoice.customerName }}</p>
         </div>
         <div>
-          <p v-if="invoice.reference" class="text-neutral-400">Reference: {{ invoice.reference }}</p>
-          <p v-if="invoice.sourceQuoteId" class="text-neutral-400">
+          <p v-if="invoice.reference" class="text-muted">Reference: {{ invoice.reference }}</p>
+          <p v-if="invoice.sourceQuoteId" class="text-muted">
             From <NuxtLink class="underline" :to="`/dashboard/quotes/${invoice.sourceQuoteId}`">quote</NuxtLink>
           </p>
         </div>
       </div>
       <table class="w-full text-sm mt-6">
-        <thead class="text-left text-xs uppercase text-neutral-500">
+        <thead class="text-left text-xs uppercase text-dimmed">
           <tr><th class="py-1">Description</th><th class="py-1 text-right">Qty</th><th class="py-1 text-right">Unit</th><th class="py-1 text-right">Amount</th></tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800">
+        <tbody class="divide-y divide-default">
           <tr v-for="(item, i) in invoice.items || []" :key="i">
-            <td class="py-2"><p class="font-medium">{{ item.description }}</p><p v-if="item.note" class="text-neutral-500 whitespace-pre-wrap">{{ item.note }}</p></td>
+            <td class="py-2"><p class="font-medium">{{ item.description }}</p><p v-if="item.note" class="text-dimmed whitespace-pre-wrap">{{ item.note }}</p></td>
             <td class="py-2 text-right tabular-nums">{{ item.qty }}</td>
             <td class="py-2 text-right tabular-nums">{{ formatCurrency(item.unitPrice, invoice.currency) }}</td>
             <td class="py-2 text-right tabular-nums">{{ formatCurrency(lineTotal(item), invoice.currency) }}</td>
@@ -169,7 +169,7 @@ watch([activeCompanyId, id], load, { immediate: true });
           <div class="flex justify-between font-semibold"><span>Total</span><span class="tabular-nums">{{ formatCurrency(invoice.total, invoice.currency) }}</span></div>
         </div>
       </div>
-      <p v-if="invoice.notes" class="mt-6 text-sm text-neutral-400 whitespace-pre-wrap">{{ invoice.notes }}</p>
+      <p v-if="invoice.notes" class="mt-6 text-sm text-muted whitespace-pre-wrap">{{ invoice.notes }}</p>
     </UCard>
   </div>
 </template>

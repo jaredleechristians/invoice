@@ -65,8 +65,8 @@ watch(() => company.value?.name, (name) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-neutral-950 text-neutral-100">
-    <header class="border-b border-neutral-800 px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
+  <div class="min-h-screen bg-default text-highlighted">
+    <header class="border-b border-default px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
       <div class="flex items-center gap-3 flex-wrap">
         <NuxtLink to="/dashboard" class="font-semibold tracking-tight">Invoice</NuxtLink>
         <UBadge v-if="activeCompanyId" color="neutral" variant="subtle">
@@ -99,7 +99,7 @@ watch(() => company.value?.name, (name) => {
         <template v-if="configured && ready">
           <UButton v-if="!user" to="/dashboard/login">Sign in</UButton>
           <template v-else>
-            <span class="text-sm text-neutral-400 hidden sm:inline">{{ user.email }}</span>
+            <span class="text-sm text-muted hidden sm:inline">{{ user.email }}</span>
             <UButton variant="ghost" color="neutral" @click="logout">Sign out</UButton>
           </template>
         </template>

@@ -105,7 +105,7 @@ async function save() {
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">Company settings</h1>
-        <p class="text-neutral-400 text-sm mt-1">Shown on invoices and quotes. Finalized invoices keep the details they were issued with.</p>
+        <p class="text-muted text-sm mt-1">Shown on invoices and quotes. Finalized invoices keep the details they were issued with.</p>
       </div>
       <UButton to="/dashboard/settings/members" variant="soft" icon="i-lucide-users">Members</UButton>
     </div>
@@ -147,7 +147,7 @@ async function save() {
               <UFormField label="VAT number"><UInput v-model="form.vatNumber" class="w-full" /></UFormField>
               <UFormField label="VAT rate (%)"><UInput v-model.number="form.vatRate" type="number" step="0.01" min="0" max="100" class="w-full" /></UFormField>
             </template>
-            <p v-else class="text-sm text-neutral-500 sm:col-span-3">Not VAT registered: invoices show a plain total with no VAT line.</p>
+            <p v-else class="text-sm text-dimmed sm:col-span-3">Not VAT registered: invoices show a plain total with no VAT line.</p>
           </div>
         </UCard>
 
@@ -174,7 +174,7 @@ async function save() {
                 />
               </div>
             </UFormField>
-            <p class="text-xs text-neutral-500 sm:col-span-3">Numbers are allocated when an invoice is finalized. If you lower the next number, numbers already used are skipped automatically.</p>
+            <p class="text-xs text-dimmed sm:col-span-3">Numbers are allocated when an invoice is finalized. If you lower the next number, numbers already used are skipped automatically.</p>
             <UFormField label="Default invoice notes" class="sm:col-span-3"><UTextarea v-model="form.defaultNotes" :rows="2" class="w-full" placeholder="Thank you for your business. Please use the invoice number as reference." /></UFormField>
             <UFormField label="Legal line (small print)" class="sm:col-span-3"><UTextarea v-model="form.legal" :rows="2" class="w-full" /></UFormField>
             <UFormField label="Footer" class="sm:col-span-3"><UInput v-model="form.footer" class="w-full" /></UFormField>
@@ -188,9 +188,9 @@ async function save() {
               <UButton size="xs" variant="soft" icon="i-lucide-plus" @click="addBank">Add account</UButton>
             </div>
           </template>
-          <p class="text-sm text-neutral-400 mb-4">Shown on invoices. Accounts tagged with a currency only appear on invoices in that currency; untagged accounts appear on all.</p>
+          <p class="text-sm text-muted mb-4">Shown on invoices. Accounts tagged with a currency only appear on invoices in that currency; untagged accounts appear on all.</p>
           <div v-if="form.bankAccounts.length" class="space-y-4">
-            <div v-for="(acct, i) in form.bankAccounts" :key="acct.id || i" class="grid gap-3 sm:grid-cols-[1fr_8rem_auto] items-start border border-neutral-800 rounded-lg p-3">
+            <div v-for="(acct, i) in form.bankAccounts" :key="acct.id || i" class="grid gap-3 sm:grid-cols-[1fr_8rem_auto] items-start border border-default rounded-lg p-3">
               <UFormField label="Label"><UInput v-model="acct.label" class="w-full" placeholder="ZAR — South African bank" /></UFormField>
               <UFormField label="Currency">
                 <NSelect v-model="acct.currency" placeholder="Any" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
@@ -201,7 +201,7 @@ async function save() {
               </UFormField>
             </div>
           </div>
-          <p v-else class="text-sm text-neutral-500">No accounts yet. Add your ZAR bank account and your USD Wise details.</p>
+          <p v-else class="text-sm text-dimmed">No accounts yet. Add your ZAR bank account and your USD Wise details.</p>
         </UCard>
       </fieldset>
 

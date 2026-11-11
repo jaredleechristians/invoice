@@ -85,7 +85,7 @@ watch(activeCompanyId, load, { immediate: true });
   <div class="space-y-6">
     <div>
       <h1 class="text-2xl font-semibold">Customers</h1>
-      <p class="text-neutral-400 text-sm mt-1">Bill-to contacts. A default currency pre-selects ZAR or USD on new invoices.</p>
+      <p class="text-muted text-sm mt-1">Bill-to contacts. A default currency pre-selects ZAR or USD on new invoices.</p>
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
@@ -112,11 +112,11 @@ watch(activeCompanyId, load, { immediate: true });
 
     <UInput v-model="q" placeholder="Search customers" icon="i-lucide-search" class="max-w-sm" />
 
-    <div v-if="filtered.length" class="divide-y divide-neutral-800 rounded-lg border border-neutral-800">
+    <div v-if="filtered.length" class="divide-y divide-default rounded-lg border border-default">
       <div v-for="c in filtered" :key="c.id" class="flex flex-wrap items-center gap-3 px-4 py-3">
         <div class="flex-1 min-w-[10rem]">
           <p class="font-medium">{{ c.name }} <UBadge v-if="c.currency" size="sm" variant="subtle" color="neutral">{{ c.currency }}</UBadge></p>
-          <p class="text-sm text-neutral-500">{{ c.email }}</p>
+          <p class="text-sm text-dimmed">{{ c.email }}</p>
         </div>
         <UButton size="xs" variant="ghost" :to="`/dashboard/invoices/new?customer=${c.id}`">New invoice</UButton>
         <UButton size="xs" variant="soft" @click="downloadStatement(c)">Statement PDF</UButton>
@@ -124,6 +124,6 @@ watch(activeCompanyId, load, { immediate: true });
         <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(c)" />
       </div>
     </div>
-    <p v-else-if="!loading" class="text-neutral-500 text-sm">No customers yet.</p>
+    <p v-else-if="!loading" class="text-dimmed text-sm">No customers yet.</p>
   </div>
 </template>

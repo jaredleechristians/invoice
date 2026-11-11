@@ -204,7 +204,7 @@ function submit(finalize: boolean) {
           <UInput v-model="form.reference" class="w-full" />
         </UFormField>
 
-        <div v-if="newCustomer.open" class="sm:col-span-4 flex flex-wrap gap-2 items-end border border-neutral-800 rounded-lg p-3">
+        <div v-if="newCustomer.open" class="sm:col-span-4 flex flex-wrap gap-2 items-end border border-default rounded-lg p-3">
           <UFormField label="New customer name" class="flex-1 min-w-48"><UInput v-model="newCustomer.name" class="w-full" /></UFormField>
           <UFormField label="Email" class="flex-1 min-w-48"><UInput v-model="newCustomer.email" type="email" class="w-full" /></UFormField>
           <UButton :loading="newCustomer.saving" @click="addCustomer">Add customer</UButton>
@@ -228,7 +228,7 @@ function submit(finalize: boolean) {
         <div
           v-for="(line, i) in form.items"
           :key="i"
-          class="grid gap-2 sm:grid-cols-[1fr_6rem_8rem_8rem_auto] items-start border-b border-neutral-800 pb-3"
+          class="grid gap-2 sm:grid-cols-[1fr_6rem_8rem_8rem_auto] items-start border-b border-default pb-3"
         >
           <div class="space-y-2">
             <!-- @products-start -->
@@ -260,7 +260,7 @@ function submit(finalize: boolean) {
         <div class="w-72 space-y-1 text-sm">
           <div v-if="vatRate > 0" class="flex justify-between"><span>Subtotal</span><span class="tabular-nums">{{ formatCurrency(totals.subtotal, form.currency) }}</span></div>
           <div v-if="vatRate > 0" class="flex justify-between"><span>VAT ({{ vatRate }}%)</span><span class="tabular-nums">{{ formatCurrency(totals.taxTotal, form.currency) }}</span></div>
-          <div class="flex justify-between text-lg font-semibold border-t border-neutral-700 pt-2"><span>Total</span><span class="tabular-nums">{{ formatCurrency(totals.total, form.currency) }}</span></div>
+          <div class="flex justify-between text-lg font-semibold border-t border-accented pt-2"><span>Total</span><span class="tabular-nums">{{ formatCurrency(totals.total, form.currency) }}</span></div>
         </div>
       </div>
     </UCard>

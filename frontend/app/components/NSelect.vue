@@ -10,7 +10,7 @@ void props;
   <select
     v-model="model"
     :disabled="disabled"
-    class="w-full rounded-md bg-neutral-900 border border-neutral-700 px-2.5 py-1.5 text-sm text-neutral-100 focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:opacity-60"
+    class="w-full rounded-md bg-elevated border border-accented px-2.5 py-1.5 text-sm text-highlighted focus:outline-none focus:ring-2 focus:ring-primary-500/40 disabled:opacity-60"
   >
     <option v-if="placeholder !== undefined" value="">{{ placeholder }}</option>
     <option v-for="o in options" :key="String(o.value)" :value="o.value">{{ o.label }}</option>

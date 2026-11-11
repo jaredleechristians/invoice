@@ -69,7 +69,7 @@ watch([activeCompanyId, showInactive], load, { immediate: true });
   <div class="space-y-6">
     <div>
       <h1 class="text-2xl font-semibold">Products &amp; services</h1>
-      <p class="text-neutral-400 text-sm mt-1">Saved items you can pick on invoice and quote lines. Prices are copied onto the line, so editing a product never changes old invoices.</p>
+      <p class="text-muted text-sm mt-1">Saved items you can pick on invoice and quote lines. Prices are copied onto the line, so editing a product never changes old invoices.</p>
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
@@ -99,17 +99,17 @@ watch([activeCompanyId, showInactive], load, { immediate: true });
 
     <div class="flex justify-end"><UCheckbox v-model="showInactive" label="Show inactive" /></div>
 
-    <div v-if="products.length" class="rounded-lg border border-neutral-800 divide-y divide-neutral-800">
+    <div v-if="products.length" class="rounded-lg border border-default divide-y divide-default">
       <div v-for="p in products" :key="p.id" class="flex flex-wrap items-center gap-3 px-4 py-3" :class="p.active ? '' : 'opacity-60'">
         <div class="flex-1 min-w-48">
           <p class="font-medium">{{ p.name }} <UBadge size="sm" variant="subtle" color="neutral">{{ p.kind }}</UBadge></p>
-          <p v-if="p.description" class="text-sm text-neutral-500 line-clamp-1">{{ p.description }}</p>
+          <p v-if="p.description" class="text-sm text-dimmed line-clamp-1">{{ p.description }}</p>
         </div>
         <p class="tabular-nums">{{ p.currency ? formatCurrency(p.unitPrice, p.currency) : p.unitPrice.toFixed(2) }}</p>
         <UButton size="xs" variant="soft" @click="edit(p)">Edit</UButton>
         <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(p)" />
       </div>
     </div>
-    <p v-else class="text-sm text-neutral-500">No items yet.</p>
+    <p v-else class="text-sm text-dimmed">No items yet.</p>
   </div>
 </template>

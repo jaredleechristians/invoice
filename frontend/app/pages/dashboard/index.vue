@@ -58,7 +58,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold">{{ company?.name || "Dashboard" }}</h1>
-        <p class="text-neutral-400 text-sm mt-1">Figures are per currency — ZAR and USD are never added together.</p>
+        <p class="text-muted text-sm mt-1">Figures are per currency — ZAR and USD are never added together.</p>
       </div>
       <div class="flex flex-wrap gap-2">
         <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">Invoice</UButton>
@@ -74,32 +74,32 @@ watch(activeCompanyId, load, { immediate: true });
 
     <div v-if="user && summary" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <UCard>
-        <p class="text-sm text-neutral-400">Outstanding <span class="text-neutral-500">({{ summary.openCount }})</span></p>
+        <p class="text-sm text-muted">Outstanding <span class="text-dimmed">({{ summary.openCount }})</span></p>
         <MoneyList :value="summary.outstanding" empty="Nothing owed" />
-        <NuxtLink to="/dashboard/invoices?status=open" class="text-xs text-neutral-500 underline">View</NuxtLink>
+        <NuxtLink to="/dashboard/invoices?status=open" class="text-xs text-dimmed underline">View</NuxtLink>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Overdue <span class="text-neutral-500">({{ summary.overdueCount }})</span></p>
+        <p class="text-sm text-muted">Overdue <span class="text-dimmed">({{ summary.overdueCount }})</span></p>
         <MoneyList :value="summary.overdue" empty="None" class="text-red-400" />
-        <NuxtLink to="/dashboard/invoices?status=overdue" class="text-xs text-neutral-500 underline">View</NuxtLink>
+        <NuxtLink to="/dashboard/invoices?status=overdue" class="text-xs text-dimmed underline">View</NuxtLink>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Income this month</p>
+        <p class="text-sm text-muted">Income this month</p>
         <MoneyList :value="summary.incomeThisMonth" empty="None yet" />
-        <p class="text-xs text-neutral-500">Payments received since {{ formatDate(summary.month.from) }}</p>
+        <p class="text-xs text-dimmed">Payments received since {{ formatDate(summary.month.from) }}</p>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Expenses this month</p>
+        <p class="text-sm text-muted">Expenses this month</p>
         <MoneyList :value="summary.expensesThisMonth" empty="None yet" />
-        <p class="text-xs text-neutral-500">Net: <span v-for="(v, c) in netThisMonth" :key="c" class="mr-2 tabular-nums">{{ formatCurrency(v, String(c)) }}</span></p>
+        <p class="text-xs text-dimmed">Net: <span v-for="(v, c) in netThisMonth" :key="c" class="mr-2 tabular-nums">{{ formatCurrency(v, String(c)) }}</span></p>
       </UCard>
     </div>
-    <div v-else-if="loading" class="text-neutral-500 text-sm">Loading…</div>
+    <div v-else-if="loading" class="text-dimmed text-sm">Loading…</div>
 
     <div v-if="summary" class="grid gap-4 lg:grid-cols-2">
       <UCard>
         <template #header><span class="font-medium">Overdue invoices</span></template>
-        <ul v-if="summary.topOverdue.length" class="divide-y divide-neutral-800 text-sm">
+        <ul v-if="summary.topOverdue.length" class="divide-y divide-default text-sm">
           <li v-for="i in summary.topOverdue" :key="i.id">
             <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between gap-3 py-2 hover:text-white">
               <span>{{ i.invoiceNumber }} · {{ i.customerName }} <span class="text-red-400 text-xs">{{ i.daysOverdue }}d</span></span>
@@ -107,13 +107,13 @@ watch(activeCompanyId, load, { immediate: true });
             </NuxtLink>
           </li>
         </ul>
-        <p v-else class="text-sm text-neutral-500">Nothing overdue. 🎉</p>
+        <p v-else class="text-sm text-dimmed">Nothing overdue. 🎉</p>
       </UCard>
       <UCard>
         <template #header>
-          <div class="flex justify-between"><span class="font-medium">Recent invoices</span><span v-if="summary.draftCount" class="text-xs text-neutral-500">{{ summary.draftCount }} draft(s)</span></div>
+          <div class="flex justify-between"><span class="font-medium">Recent invoices</span><span v-if="summary.draftCount" class="text-xs text-dimmed">{{ summary.draftCount }} draft(s)</span></div>
         </template>
-        <ul v-if="summary.recentInvoices.length" class="divide-y divide-neutral-800 text-sm">
+        <ul v-if="summary.recentInvoices.length" class="divide-y divide-default text-sm">
           <li v-for="i in summary.recentInvoices" :key="i.id">
             <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between items-center gap-3 py-2 hover:text-white">
               <span>{{ i.invoiceNumber || "Draft" }} · {{ i.customerName || "—" }}</span>
@@ -124,7 +124,7 @@ watch(activeCompanyId, load, { immediate: true });
             </NuxtLink>
           </li>
         </ul>
-        <p v-else class="text-sm text-neutral-500">No invoices yet. <NuxtLink to="/dashboard/invoices/new" class="underline">Create one</NuxtLink> or <NuxtLink to="/dashboard/import" class="underline">import from the editor</NuxtLink>.</p>
+        <p v-else class="text-sm text-dimmed">No invoices yet. <NuxtLink to="/dashboard/invoices/new" class="underline">Create one</NuxtLink> or <NuxtLink to="/dashboard/import" class="underline">import from the editor</NuxtLink>.</p>
       </UCard>
     </div>
   </div>
