@@ -50,7 +50,7 @@ const netThisMonth = computed(() => {
 
 const needsSetup = computed(() => company.value && !company.value.bankAccounts?.length);
 
-watch(activeCompanyId, load, { immediate: true });
+watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 </script>
 
 <template>

@@ -23,7 +23,7 @@ Everything is scoped per company. All writes go through the API (server-side che
 | Expenses | Date, vendor, category, amount, currency, notes, optional receipt (PDF/image ≤700 KB stored in Firestore); categories with defaults, rename and delete (blocked when used) |
 | Reports | Date range; per currency, no FX conversion: income by month, invoiced by month, income by customer, outstanding invoices, aged receivables (as of range end), expenses by category, cash-basis P&L; CSV export |
 | Home | Outstanding, overdue, this month's income and expenses per currency |
-| AI assistant | Read-only; can list invoices and read a financial summary. It never creates or changes money records. |
+| AI assistant | Answers questions from live data and can **propose** new customers, products, expenses, draft invoices/quotes, payments and simple field updates. Every write is shown as a confirmation card and only saved when the user presses Confirm. Never finalizes, voids or deletes. |
 
 Out of scope for now (the model leaves room): Paystack/Wise integrations, recurring invoices, emailing invoices, bank feeds.
 
@@ -91,6 +91,18 @@ Leave all three unset in production.
 
 `companies/{companyId}` with these subcollections:
 
-- `members`, `invites`, `counters`, `customers`, `products`, `invoices`, `quotes`, `payments`, `expenses`, `expenseCategories`, `expenseReceipts`, `auditLog`
+- `members`, `invites`, `counters`, `customers`, `products`, `invoices`, `quotes`, `payments`, `expenses`, `expenseCategories`, `expenseReceipts`, `auditLog`, `assistantActions` (pending assistant proposals; server-only)
 
 Deploy `firestore.rules` and `firestore.indexes.json` with the Firebase CLI when you go live.
+
+## Company assistant: how writes work
+
+1. The model gets read tools plus `propose_*` write tools (`backend/lib/assistantActions.js`). Members whose role can't write get only the read tools.
+2. A `propose_*` call never touches business data. The server resolves names (customer, product, invoice), validates the input and stores a pending proposal in `assistantActions` (30-minute expiry). If anything is ambiguous or missing (several matching customers, no currency the user actually mentioned, no amount or date, which unpaid invoice a payment is for), it returns a clarifying question for the model to ask instead.
+3. The chat panel shows the proposal as a card with **Confirm** and **Cancel**. Confirm (`POST /companies/:id/assistant/actions/:actionId/confirm`) can only be used once, only by the person who asked, and only with a role that can write. It then runs the normal service function with the same validation and permission checks. Audit entries are tagged `via: "assistant"` with the `assistantActionId`.
+4. There are no finalize, void or delete tools. Invoices and quotes are always created as drafts.
+
+Models that don't emit native tool calls can reply with `{"tool": "...", "arguments": {...}}` instead (JSON fallback). Empty replies are retried.
+
+**Model:** with `openrouter/free`, native tool calls worked in most of our trials. But some replies were empty, and once the model filled in ZAR for "a 500 expense" (the server now rejects that and asks). For reliable data entry, set `OPENAI_MODEL` to a paid model with solid function calling, e.g. `openai/gpt-4.1-mini`, `google/gemini-2.5-flash` or `anthropic/claude-haiku-4.5`.
+

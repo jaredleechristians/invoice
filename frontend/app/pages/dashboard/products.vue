@@ -76,7 +76,7 @@ async function remove(p: Product) {
   }
 }
 
-watch([activeCompanyId, showInactive], load, { immediate: true });
+watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true });
 </script>
 
 <template>

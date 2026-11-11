@@ -17,6 +17,7 @@ const { renderStatementHtml } = require("../lib/statementHtml");
 const { renderDocumentHtml } = require("../lib/documentHtml");
 const { htmlToPdfBuffer } = require("../lib/pdf");
 const { runTenantChat } = require("../lib/tenantChat");
+const assistantActions = require("../lib/assistantActions");
 
 const router = express.Router();
 
@@ -189,12 +190,18 @@ company.get("/expenses/:expenseId/receipt", h(async (req, res) => {
 company.get("/summary", h((req) => reports.companySummary(req.companyId)));
 company.get("/reports", h((req) => reports.companyReports(req.companyId, { from: req.query.from, to: req.query.to, asOf: req.query.asOf })));
 
-// ---------- read-only assistant ----------
+// ---------- assistant (reads; writes only via confirmed proposals) ----------
 
 company.post("/assistant", h(async (req) => {
   const messages = req.body?.messages;
   if (!Array.isArray(messages) || !messages.length) throw httpError(400, "messages array is required");
-  return runTenantChat({ companyId: req.companyId, uid: req.user.uid, email: req.user.email, messages });
+  return runTenantChat({ companyId: req.companyId, uid: req.user.uid, email: req.user.email, role: req.role, messages });
 }));
+company.post("/assistant/actions/:actionId/confirm", h((req) =>
+  assistantActions.confirmAction({ companyId: req.companyId, uid: req.user.uid, email: req.user.email, role: req.role, actionId: req.params.actionId })
+));
+company.post("/assistant/actions/:actionId/cancel", h((req) =>
+  assistantActions.cancelAction({ companyId: req.companyId, uid: req.user.uid, email: req.user.email, actionId: req.params.actionId })
+));
 
 module.exports = router;

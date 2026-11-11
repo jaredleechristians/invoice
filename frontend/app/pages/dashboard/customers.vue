@@ -93,7 +93,7 @@ async function downloadStatement(c: Customer) {
   }
 }
 
-watch(activeCompanyId, load, { immediate: true });
+watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 </script>
 
 <template>

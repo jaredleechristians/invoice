@@ -48,7 +48,7 @@ service cloud.firestore {
       // readable by members, written only by the server.
       match /{collection}/{docId} {
         allow read: if isMember(companyId)
-          && !(collection in ['members', 'invites', 'auditLog']);
+          && !(collection in ['members', 'invites', 'auditLog', 'assistantActions']);
         allow write: if false;
       }
     }

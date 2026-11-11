@@ -33,7 +33,7 @@ async function load() {
   }
 }
 
-watch(activeCompanyId, load, { immediate: true });
+watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 </script>
 
 <template>

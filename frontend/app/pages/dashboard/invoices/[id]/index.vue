@@ -86,7 +86,7 @@ function onPaymentsChanged(updated: Invoice | null) {
   else load();
 }
 
-watch([activeCompanyId, id], load, { immediate: true });
+watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
 </script>
 
 <template>
