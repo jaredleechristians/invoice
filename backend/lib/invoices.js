@@ -45,6 +45,14 @@ function withComputed(invoice, now = new Date()) {
   };
 }
 
+/** Optional ZAR per 1 unit of the invoice currency on the invoice date (null if unset). */
+function cleanExchangeRate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw httpError(400, "Exchange rate must be a positive number");
+  return Math.round(n * 1e6) / 1e6;
+}
+
 async function loadCompany(companyId) {
   const db = getDb();
   const snap = await companyRef(db, companyId).get();
@@ -137,6 +145,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     items,
     vatRate,
     ...totals,
+    exchangeRate: currency === "ZAR" ? null : cleanExchangeRate(body.exchangeRate),
     notes: body.notes !== undefined ? String(body.notes || "") : company.defaultNotes || "",
     footer: String(body.footer || ""),
     banking: body.banking || null,
@@ -198,6 +207,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     }
     patch.currency = currency;
   }
+  if (body.exchangeRate !== undefined) patch.exchangeRate = cleanExchangeRate(body.exchangeRate);
   if (body.issueDate !== undefined) patch.issueDate = toIsoDate(body.issueDate) || existing.issueDate;
   if (body.dueDate !== undefined) patch.dueDate = toIsoDate(body.dueDate) || String(body.dueDate || "");
   if (body.items !== undefined || body.vatRate !== undefined) {
@@ -310,4 +320,5 @@ module.exports = {
   deleteInvoice,
   withComputed,
   loadCompany,
+  cleanExchangeRate,
 };

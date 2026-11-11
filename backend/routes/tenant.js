@@ -18,6 +18,8 @@ const { renderDocumentHtml } = require("../lib/documentHtml");
 const { htmlToPdfBuffer } = require("../lib/pdf");
 const { runTenantChat } = require("../lib/tenantChat");
 const assistantActions = require("../lib/assistantActions");
+const bankAccounts = require("../lib/bankAccounts");
+const bank = require("../lib/bankTransactions");
 
 const router = express.Router();
 
@@ -184,6 +186,31 @@ company.get("/expenses/:expenseId/receipt", h(async (req, res) => {
   res.setHeader("Content-Disposition", `inline; filename="${safeName(r.filename, "receipt")}"`);
   res.send(r.buffer);
 }));
+
+// ---------- bank accounts, imports and reconciliation ----------
+
+company.get("/bank-accounts", h(async (req) => ({ accounts: await bankAccounts.listAccounts(req.companyId), banks: bankAccounts.BANKS })));
+company.post("/bank-accounts", h((req) => bankAccounts.createAccount(...actor(req), req.body || {}), 201));
+company.patch("/bank-accounts/:accountId", h((req) => bankAccounts.updateAccount(...actor(req), req.params.accountId, req.body || {})));
+company.delete("/bank-accounts/:accountId", h((req) => bankAccounts.deleteAccount(...actor(req), req.params.accountId)));
+
+company.get("/bank-imports", h(async (req) => ({ imports: await bank.listImports(req.companyId, { accountId: req.query.accountId }) })));
+company.post("/bank-imports/preview", h((req) => bank.previewImport(...actor(req), req.body || {})));
+company.post("/bank-imports", h((req) => bank.commitImport(...actor(req), req.body || {}), 201));
+company.delete("/bank-imports/:importId", h((req) => bank.deleteImport(...actor(req), req.params.importId)));
+
+company.get("/bank-transactions", h(async (req) => ({
+  transactions: await bank.listTransactions(req.companyId, {
+    accountId: req.query.accountId,
+    status: req.query.status,
+    from: req.query.from,
+    to: req.query.to,
+    q: req.query.q,
+  }),
+})));
+company.get("/bank-transactions/:transactionId/suggestions", h((req) => bank.suggestions(req.companyId, req.params.transactionId)));
+company.post("/bank-transactions/:transactionId/reconcile", h((req) => bank.reconcile(...actor(req), req.params.transactionId, req.body || {})));
+company.post("/bank-transactions/:transactionId/undo", h((req) => bank.undo(...actor(req), req.params.transactionId, req.body || {})));
 
 // ---------- reports ----------
 
