@@ -32,9 +32,17 @@ export function useAuth() {
     await signInWithPopup($firebaseAuth, provider);
   }
 
+  /** Forget everything tied to the previous user (company, tenant, page state). */
+  function clearSessionData() {
+    clearNuxtState(["active-company", "active-company-loading", "active-company-id", "page-header"]);
+    if (import.meta.client) localStorage.removeItem("activeCompanyId");
+  }
+
   async function logout() {
-    if (!$firebaseAuth) return;
-    await signOut($firebaseAuth);
+    if ($firebaseAuth) await signOut($firebaseAuth);
+    user.value = null;
+    clearSessionData();
+    await navigateTo("/dashboard/login", { replace: true });
   }
 
   async function idToken() {
@@ -42,5 +50,5 @@ export function useAuth() {
     return user.value.getIdToken();
   }
 
-  return { user, ready, configured, signInGoogle, logout, idToken, waitUntilReady };
+  return { user, ready, configured, signInGoogle, logout, idToken, waitUntilReady, clearSessionData };
 }

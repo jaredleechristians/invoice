@@ -8,6 +8,7 @@ const loading = ref(false);
 const error = ref("");
 
 import type { DropdownMenuItem, NavigationMenuItem } from "@nuxt/ui";
+import { isPublicDashboardPath } from "~/utils/authRoutes";
 
 const NAV = [
   { to: "/dashboard", label: "Home", icon: "i-lucide-house", exact: true },
@@ -226,7 +227,10 @@ watch(() => company.value?.name, (name) => {
       <template #body>
         <UAlert v-if="error" class="mb-4" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="error" />
         <div class="mx-auto w-full max-w-6xl">
-          <slot />
+          <slot v-if="user || isPublicDashboardPath(route.path)" />
+          <div v-else class="flex justify-center py-16 text-dimmed">
+            <UIcon name="i-lucide-loader-circle" class="size-6 animate-spin" />
+          </div>
         </div>
       </template>
     </UDashboardPanel>
