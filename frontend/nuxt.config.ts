@@ -5,6 +5,10 @@ export default defineNuxtConfig({
     compatibilityVersion: 4,
   },
   modules: ["@nuxt/ui"],
+  icon: {
+    // Small local SVG set (e.g. i-app-google) — no extra icon packages needed.
+    customCollections: [{ prefix: "app", dir: "./app/assets/icons" }],
+  },
   ssr: false,
   css: ["~/assets/css/main.css"],
   app: {
