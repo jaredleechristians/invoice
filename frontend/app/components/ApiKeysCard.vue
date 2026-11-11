@@ -28,7 +28,7 @@ const inactiveCount = computed(() => keys.value.filter((k) => k.status !== "acti
 
 const SCOPES = [
   { label: "Read only", value: "read" },
-  { label: "Read & write (also publish, void and delete)", value: "read_write" },
+  { label: "Read & write", value: "read_write" },
 ];
 const EXPIRY = [
   { label: "Never", value: "never" },
