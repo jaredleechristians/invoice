@@ -25,7 +25,7 @@ const history = ref<{ role: "user" | "assistant"; content: string }[]>([]);
 const bubbles = ref<Bubble[]>([]);
 const DESCRIPTION =
   "Ask about your numbers or tell me what to add. I'll confirm before saving anything.";
-const suggestions = ["Who owes us money?", "Add an R1,200 fuel expense today", "Draft an invoice for a customer"];
+const suggestions = ["Who owes us money?", "Add a fuel expense today", "Draft an invoice for a customer"];
 const scroller = ref<HTMLElement | null>(null);
 
 watch(
