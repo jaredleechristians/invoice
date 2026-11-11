@@ -132,24 +132,29 @@ watch(activeCompanyId, load, { immediate: true });
 
     <UInput v-model="q" placeholder="Search customers" icon="i-lucide-search" class="max-w-sm" />
 
-    <div v-if="filtered.length" class="divide-y divide-default rounded-lg border border-default">
-      <div v-for="c in filtered" :key="c.id" class="flex flex-wrap items-center gap-3 px-4 py-3">
-        <div class="flex-1 min-w-[10rem]">
-          <p class="font-medium">{{ c.name }} <UBadge v-if="c.currency" size="sm" variant="subtle" color="neutral">{{ c.currency }}</UBadge></p>
-          <p class="text-sm text-dimmed">{{ c.email }}</p>
+    <UTable
+      :data="filtered"
+      :columns="[
+        { accessorKey: 'name', header: 'Name' },
+        { accessorKey: 'email', header: 'Email' },
+        { accessorKey: 'currency', header: 'Currency' },
+        { id: 'actions', header: '', meta: { class: { th: 'text-right', td: 'text-right' } } },
+      ]"
+      :loading="loading"
+      class="rounded-lg border border-default" :ui="{ td: 'py-2.5', th: 'text-xs uppercase tracking-wide text-dimmed' }"
+    >
+      <template #name-cell="{ row }"><span class="font-medium text-highlighted">{{ row.original.name }}</span></template>
+      <template #email-cell="{ row }"><span class="text-muted">{{ row.original.email || "—" }}</span></template>
+      <template #currency-cell="{ row }"><span class="text-muted">{{ row.original.currency || "Default" }}</span></template>
+      <template #actions-cell="{ row }">
+        <div class="flex justify-end gap-1">
+          <UButton size="xs" variant="ghost" :to="`/dashboard/invoices/new?customer=${row.original.id}`">New invoice</UButton>
+          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-file-down" aria-label="Statement PDF" @click="downloadStatement(row.original)" />
+          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit" @click="edit(row.original)" />
+          <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Delete" @click="remove(row.original)" />
         </div>
-        <UButton size="xs" variant="ghost" :to="`/dashboard/invoices/new?customer=${c.id}`">New invoice</UButton>
-        <UButton size="xs" variant="soft" @click="downloadStatement(c)">Statement PDF</UButton>
-        <UButton size="xs" variant="soft" color="neutral" @click="edit(c)">Edit</UButton>
-        <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(c)" />
-      </div>
-    </div>
-    <UCard v-else-if="!loading" class="text-center">
-      <div class="py-6 space-y-3">
-        <UIcon name="i-lucide-users" class="size-8 text-dimmed" />
-        <p class="text-muted text-sm">No customers yet.</p>
-        <UButton icon="i-lucide-plus" @click="openNew">Add customer</UButton>
-      </div>
-    </UCard>
+      </template>
+      <template #empty><p class="py-6 text-center text-sm text-dimmed">No customers yet.</p></template>
+    </UTable>
   </div>
 </template>

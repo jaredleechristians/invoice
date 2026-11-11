@@ -118,17 +118,33 @@ watch([activeCompanyId, showInactive], load, { immediate: true });
 
     <div class="flex justify-end"><UCheckbox v-model="showInactive" label="Show inactive" /></div>
 
-    <div v-if="products.length" class="rounded-lg border border-default divide-y divide-default">
-      <div v-for="p in products" :key="p.id" class="flex flex-wrap items-center gap-3 px-4 py-3" :class="p.active ? '' : 'opacity-60'">
-        <div class="flex-1 min-w-48">
-          <p class="font-medium">{{ p.name }} <UBadge size="sm" variant="subtle" color="neutral">{{ p.kind }}</UBadge></p>
-          <p v-if="p.description" class="text-sm text-dimmed line-clamp-1">{{ p.description }}</p>
+    <UTable
+      :data="products"
+      :columns="[
+        { accessorKey: 'name', header: 'Name' },
+        { accessorKey: 'kind', header: 'Type' },
+        { accessorKey: 'unitPrice', header: 'Price', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { id: 'actions', header: '', meta: { class: { th: 'text-right', td: 'text-right' } } },
+      ]"
+      class="rounded-lg border border-default" :ui="{ td: 'py-2.5', th: 'text-xs uppercase tracking-wide text-dimmed' }"
+    >
+      <template #name-cell="{ row }">
+        <div :class="row.original.active ? '' : 'opacity-60'">
+          <p class="font-medium text-highlighted">{{ row.original.name }} <UBadge v-if="!row.original.active" size="sm" variant="subtle" color="neutral">Inactive</UBadge></p>
+          <p v-if="row.original.description" class="text-xs text-dimmed line-clamp-1 max-w-md">{{ row.original.description }}</p>
         </div>
-        <p class="tabular-nums">{{ p.currency ? formatCurrency(p.unitPrice, p.currency) : p.unitPrice.toFixed(2) }}</p>
-        <UButton size="xs" variant="soft" @click="edit(p)">Edit</UButton>
-        <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(p)" />
-      </div>
-    </div>
-    <p v-else class="text-sm text-dimmed">No items yet.</p>
+      </template>
+      <template #kind-cell="{ row }"><span class="text-muted capitalize">{{ row.original.kind }}</span></template>
+      <template #unitPrice-cell="{ row }">
+        <span class="tabular-nums">{{ row.original.currency ? formatCurrency(row.original.unitPrice, row.original.currency) : row.original.unitPrice.toFixed(2) }}</span>
+      </template>
+      <template #actions-cell="{ row }">
+        <div class="flex justify-end gap-1">
+          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit" @click="edit(row.original)" />
+          <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Delete" @click="remove(row.original)" />
+        </div>
+      </template>
+      <template #empty><p class="py-6 text-center text-sm text-dimmed">No products yet.</p></template>
+    </UTable>
   </div>
 </template>

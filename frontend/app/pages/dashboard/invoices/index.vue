@@ -71,39 +71,29 @@ watch(activeCompanyId, load, { immediate: true });
       <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" @click="load" />
     </div>
 
-    <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-default">
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase tracking-wide text-dimmed bg-elevated/60">
-          <tr>
-            <th class="px-4 py-2">Number</th>
-            <th class="px-4 py-2">Customer</th>
-            <th class="px-4 py-2">Issued</th>
-            <th class="px-4 py-2">Due</th>
-            <th class="px-4 py-2 text-right">Total</th>
-            <th class="px-4 py-2 text-right">Outstanding</th>
-            <th class="px-4 py-2">Status</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-default">
-          <tr
-            v-for="inv in filtered"
-            :key="inv.id"
-            class="hover:bg-elevated/60 cursor-pointer"
-            @click="navigateTo(`/dashboard/invoices/${inv.id}`)"
-          >
-            <td class="px-4 py-2.5 font-medium">{{ inv.invoiceNumber || "Draft" }}</td>
-            <td class="px-4 py-2.5 text-toned">{{ inv.customerName || "—" }}</td>
-            <td class="px-4 py-2.5 text-muted">{{ formatDate(inv.issueDateIso) }}</td>
-            <td class="px-4 py-2.5 text-muted">{{ inv.dueDateIso ? formatDate(inv.dueDateIso) : inv.dueDate || "—" }}</td>
-            <td class="px-4 py-2.5 text-right tabular-nums">{{ formatCurrency(inv.total, inv.currency) }}</td>
-            <td class="px-4 py-2.5 text-right tabular-nums">{{ inv.outstanding > 0 ? formatCurrency(inv.outstanding, inv.currency) : "—" }}</td>
-            <td class="px-4 py-2.5">
-              <UBadge :color="STATUS_COLORS[inv.status] || 'neutral'" variant="subtle">{{ statusLabel(inv.status) }}</UBadge>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p v-else-if="!loading" class="text-dimmed text-sm">No invoices match.</p>
+    <UTable
+      :data="filtered"
+      :columns="[
+        { accessorKey: 'invoiceNumber', header: 'Number' },
+        { accessorKey: 'customerName', header: 'Customer' },
+        { accessorKey: 'issueDateIso', header: 'Issued' },
+        { accessorKey: 'dueDateIso', header: 'Due' },
+        { accessorKey: 'total', header: 'Total', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { accessorKey: 'outstanding', header: 'Outstanding', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { accessorKey: 'status', header: 'Status' },
+      ]"
+      :loading="loading"
+      class="rounded-lg border border-default" :ui="{ td: 'py-2.5', th: 'text-xs uppercase tracking-wide text-dimmed', tr: 'cursor-pointer' }"
+      @select="(_e, row) => navigateTo(`/dashboard/invoices/${row.original.id}`)"
+    >
+      <template #invoiceNumber-cell="{ row }"><span class="font-medium text-highlighted">{{ row.original.invoiceNumber || "Draft" }}</span></template>
+      <template #customerName-cell="{ row }"><span class="text-toned">{{ row.original.customerName || "—" }}</span></template>
+      <template #issueDateIso-cell="{ row }"><span class="text-muted">{{ formatDate(row.original.issueDateIso) }}</span></template>
+      <template #dueDateIso-cell="{ row }"><span class="text-muted">{{ row.original.dueDateIso ? formatDate(row.original.dueDateIso) : row.original.dueDate || "—" }}</span></template>
+      <template #total-cell="{ row }"><span class="tabular-nums">{{ formatCurrency(row.original.total, row.original.currency) }}</span></template>
+      <template #outstanding-cell="{ row }"><span class="tabular-nums">{{ row.original.outstanding > 0 ? formatCurrency(row.original.outstanding, row.original.currency) : "—" }}</span></template>
+      <template #status-cell="{ row }"><UBadge :color="STATUS_COLORS[row.original.status] || 'neutral'" variant="subtle">{{ statusLabel(row.original.status) }}</UBadge></template>
+      <template #empty><p class="py-6 text-center text-sm text-dimmed">{{ invoices.length ? "No invoices match these filters." : "No invoices yet." }}</p></template>
+    </UTable>
   </div>
 </template>

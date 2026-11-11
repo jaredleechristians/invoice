@@ -115,27 +115,36 @@ watch(() => props.invoice.id, load, { immediate: true });
       <p class="text-xs text-dimmed sm:col-span-6">Payments are recorded in the invoice currency ({{ invoice.currency }}). Outstanding: {{ formatCurrency(invoice.outstanding, invoice.currency) }}.</p>
     </form>
 
-    <table v-if="payments.length" class="w-full text-sm">
-      <thead class="text-left text-xs uppercase text-dimmed">
-        <tr><th class="py-1">Date</th><th class="py-1">Method</th><th class="py-1">Reference</th><th class="py-1 text-right">Amount</th><th class="py-1" /></tr>
-      </thead>
-      <tbody class="divide-y divide-default">
-        <tr v-for="p in payments" :key="p.id" :class="p.voided ? 'opacity-50' : ''">
-          <td class="py-2">{{ formatDate(p.paidAtIso) }}</td>
-          <td class="py-2">{{ PAYMENT_METHOD_LABELS[p.method] || p.method }}</td>
-          <td class="py-2 text-muted">
-            {{ p.reference || "—" }}
-            <span v-if="p.note" class="block text-xs text-dimmed">{{ p.note }}</span>
-            <span v-if="p.voided" class="block text-xs text-error">Void{{ p.voidReason ? `: ${p.voidReason}` : "" }}</span>
-          </td>
-          <td class="py-2 text-right tabular-nums font-medium" :class="p.voided ? 'line-through' : ''">{{ formatCurrency(p.amount, p.currency) }}</td>
-          <td class="py-2 text-right whitespace-nowrap">
-            <UButton v-if="!p.voided" size="xs" variant="ghost" color="warning" :loading="busyId === p.id" @click="voidPayment(p)">Void</UButton>
-            <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" :loading="busyId === p.id" @click="deletePayment(p)" />
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p v-else class="text-sm text-dimmed">No payments yet.</p>
+    <UTable
+      :data="payments"
+      :columns="[
+        { accessorKey: 'paidAtIso', header: 'Date' },
+        { accessorKey: 'method', header: 'Method' },
+        { accessorKey: 'reference', header: 'Reference' },
+        { accessorKey: 'amount', header: 'Amount', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { id: 'actions', header: '', meta: { class: { th: 'text-right', td: 'text-right' } } },
+      ]"
+      class="rounded-lg border border-default" :ui="{ td: 'py-2.5', th: 'text-xs uppercase tracking-wide text-dimmed' }"
+    >
+      <template #paidAtIso-cell="{ row }"><span :class="row.original.voided ? 'opacity-50' : ''">{{ formatDate(row.original.paidAtIso) }}</span></template>
+      <template #method-cell="{ row }"><span :class="row.original.voided ? 'opacity-50' : ''">{{ PAYMENT_METHOD_LABELS[row.original.method] || row.original.method }}</span></template>
+      <template #reference-cell="{ row }">
+        <div class="text-muted" :class="row.original.voided ? 'opacity-50' : ''">
+          {{ row.original.reference || "—" }}
+          <span v-if="row.original.note" class="block text-xs text-dimmed">{{ row.original.note }}</span>
+          <span v-if="row.original.voided" class="block text-xs text-error">Void{{ row.original.voidReason ? `: ${row.original.voidReason}` : "" }}</span>
+        </div>
+      </template>
+      <template #amount-cell="{ row }">
+        <span class="tabular-nums font-medium" :class="row.original.voided ? 'line-through opacity-50' : ''">{{ formatCurrency(row.original.amount, row.original.currency) }}</span>
+      </template>
+      <template #actions-cell="{ row }">
+        <div class="flex justify-end gap-1">
+          <UButton v-if="!row.original.voided" size="xs" variant="ghost" color="warning" :loading="busyId === row.original.id" @click="voidPayment(row.original)">Void</UButton>
+          <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Delete" :loading="busyId === row.original.id" @click="deletePayment(row.original)" />
+        </div>
+      </template>
+      <template #empty><p class="py-4 text-center text-sm text-dimmed">No payments yet.</p></template>
+    </UTable>
   </UCard>
 </template>

@@ -307,26 +307,32 @@ watch(activeCompanyId, load, { immediate: true });
       </div>
     </div>
 
-    <div v-if="expenses.length" class="overflow-x-auto rounded-lg border border-default">
-      <table class="w-full text-sm">
-        <thead class="text-left text-xs uppercase tracking-wide text-dimmed bg-elevated/60">
-          <tr><th class="px-4 py-2">Date</th><th class="px-4 py-2">Vendor</th><th class="px-4 py-2">Category</th><th class="px-4 py-2 text-right">Amount</th><th class="px-4 py-2" /></tr>
-        </thead>
-        <tbody class="divide-y divide-default">
-          <tr v-for="e in expenses" :key="e.id">
-            <td class="px-4 py-2.5 whitespace-nowrap">{{ formatDate(e.date) }}</td>
-            <td class="px-4 py-2.5">{{ e.vendor || "—" }}<span v-if="e.notes" class="block text-xs text-dimmed line-clamp-1">{{ e.notes }}</span></td>
-            <td class="px-4 py-2.5 text-muted">{{ e.categoryName }}</td>
-            <td class="px-4 py-2.5 text-right tabular-nums">{{ formatCurrency(e.amount, e.currency) }}</td>
-            <td class="px-4 py-2.5 text-right whitespace-nowrap">
-              <UButton v-if="e.receipt" size="xs" variant="ghost" icon="i-lucide-paperclip" @click="viewReceipt(e)" />
-              <UButton size="xs" variant="soft" @click="edit(e)">Edit</UButton>
-              <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(e)" />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <p v-else class="text-sm text-dimmed">No expenses in this view.</p>
+    <UTable
+      :data="expenses"
+      :columns="[
+        { accessorKey: 'date', header: 'Date' },
+        { accessorKey: 'vendor', header: 'Vendor' },
+        { accessorKey: 'categoryName', header: 'Category' },
+        { accessorKey: 'amount', header: 'Amount', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { id: 'actions', header: '', meta: { class: { th: 'text-right', td: 'text-right' } } },
+      ]"
+      class="rounded-lg border border-default" :ui="{ td: 'py-2.5', th: 'text-xs uppercase tracking-wide text-dimmed' }"
+    >
+      <template #date-cell="{ row }"><span class="whitespace-nowrap">{{ formatDate(row.original.date) }}</span></template>
+      <template #vendor-cell="{ row }">
+        <span class="text-highlighted">{{ row.original.vendor || "—" }}</span>
+        <span v-if="row.original.notes" class="block text-xs text-dimmed line-clamp-1">{{ row.original.notes }}</span>
+      </template>
+      <template #categoryName-cell="{ row }"><span class="text-muted">{{ row.original.categoryName }}</span></template>
+      <template #amount-cell="{ row }"><span class="tabular-nums">{{ formatCurrency(row.original.amount, row.original.currency) }}</span></template>
+      <template #actions-cell="{ row }">
+        <div class="flex justify-end gap-1">
+          <UButton v-if="row.original.receipt" size="xs" variant="ghost" color="neutral" icon="i-lucide-paperclip" aria-label="Receipt" @click="viewReceipt(row.original)" />
+          <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit" @click="edit(row.original)" />
+          <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Delete" @click="remove(row.original)" />
+        </div>
+      </template>
+      <template #empty><p class="py-6 text-center text-sm text-dimmed">No expenses yet.</p></template>
+    </UTable>
   </div>
 </template>
