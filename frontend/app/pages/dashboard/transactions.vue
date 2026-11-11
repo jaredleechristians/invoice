@@ -88,6 +88,7 @@ const accounts = ref<BankAccount[]>([]);
 const txs = ref<Tx[]>([]);
 const error = ref("");
 const loading = ref(false);
+const loaded = ref(false);
 const filters = reactive({ accountId: "", status: "", from: "", to: "", q: "" });
 const search = ref("");
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -139,6 +140,8 @@ async function load() {
     await loadTransactions();
   } catch (e) {
     error.value = errMsg(e);
+  } finally {
+    loaded.value = true;
   }
 }
 
@@ -563,44 +566,53 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Bank lines to reconcile. Income and expenses still come from payments and expenses, so transfers never count as income.">
-      <template #filters>
-        <div class="w-full sm:w-56"><AppSelect v-model="filters.accountId" placeholder="All accounts" :options="accountOptions" /></div>
-        <div class="w-full sm:w-44"><AppSelect v-model="filters.status" placeholder="Any status" :options="STATUS_OPTIONS" /></div>
+      <template v-if="accounts.length" #filters>
+        <div class="w-full sm:w-48"><AppSelect v-model="filters.accountId" placeholder="All accounts" :options="accountOptions" /></div>
+        <div class="w-full sm:w-36"><AppSelect v-model="filters.status" placeholder="Any status" :options="STATUS_OPTIONS" /></div>
         <DatePicker v-model="filterRange" range :presets="DATE_PRESETS" clearable placeholder="All dates" />
-        <UInput v-model="search" icon="i-lucide-search" placeholder="Search" class="w-full sm:w-48" />
+        <UInput v-model="search" icon="i-lucide-search" placeholder="Search" class="w-full sm:w-44" />
       </template>
-      <UButton variant="soft" color="neutral" icon="i-lucide-history" :disabled="!accounts.length" @click="openHistory">Imports</UButton>
-      <UButton v-if="isAdmin" variant="soft" color="neutral" icon="i-lucide-plus" @click="openAccount()">Add bank account</UButton>
-      <UButton icon="i-lucide-upload" :disabled="!accounts.length" @click="openImport">Import</UButton>
+      <template v-if="accounts.length" #default>
+        <UTooltip text="Import history">
+          <UButton variant="ghost" color="neutral" icon="i-lucide-history" aria-label="Import history" @click="openHistory" />
+        </UTooltip>
+        <UButton v-if="isAdmin" variant="soft" color="neutral" icon="i-lucide-plus" @click="openAccount()">Add bank account</UButton>
+        <UButton icon="i-lucide-upload" @click="openImport">Import</UButton>
+      </template>
     </PageHeader>
 
-    <UAlert v-if="error" color="error" variant="subtle" :title="error" />
+    <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="error" />
 
-    <div v-if="!accounts.length" class="rounded-lg border border-dashed border-default p-6 text-center text-sm text-muted">
-      <p>Add a bank account, then import a statement (OFX or CSV).</p>
-      <p v-if="!isAdmin" class="mt-1 text-dimmed">Ask an admin to add one.</p>
-    </div>
+    <UCard v-if="loaded && !error && !accounts.length" class="mx-auto max-w-lg text-center" :ui="{ body: 'py-10 space-y-4' }">
+      <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-primary/10">
+        <UIcon name="i-lucide-landmark" class="size-6 text-primary" />
+      </div>
+      <div class="space-y-1">
+        <p class="font-medium text-highlighted">Add your first bank account</p>
+        <p class="text-sm text-muted">Then import a statement (OFX or CSV) and match each line to invoices, payments or expenses.</p>
+      </div>
+      <UButton v-if="isAdmin" icon="i-lucide-plus" @click="openAccount()">Add bank account</UButton>
+      <p v-else class="text-sm text-dimmed">Ask an owner or admin to add one.</p>
+    </UCard>
 
-    <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div v-else-if="accounts.length" class="flex gap-3 overflow-x-auto pb-1">
       <button
         v-for="a in accounts"
         :key="a.id"
         type="button"
-        class="rounded-lg border p-3 text-left transition hover:bg-elevated/50"
-        :class="filters.accountId === a.id ? 'border-primary' : 'border-default'"
+        class="group w-56 shrink-0 rounded-lg border px-3 py-2 text-left transition hover:bg-elevated/50"
+        :class="filters.accountId === a.id ? 'border-primary bg-primary/5' : 'border-default'"
         @click="filters.accountId = filters.accountId === a.id ? '' : a.id"
       >
-        <div class="flex items-start gap-2">
-          <div class="min-w-0 flex-1">
-            <p class="truncate font-medium text-highlighted">{{ a.name }}</p>
-            <p class="text-xs text-dimmed">{{ BANK_LABELS[a.bank] || "Other" }}{{ a.accountLast4 ? ` · ${a.accountLast4}` : "" }} · {{ a.currency }}</p>
-          </div>
-          <UButton v-if="isAdmin" size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit account" @click.stop="openAccount(a)" />
+        <div class="flex items-center gap-1">
+          <p class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ a.name }}</p>
+          <UButton v-if="isAdmin" size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit account" class="opacity-0 group-hover:opacity-100 focus:opacity-100" @click.stop="openAccount(a)" />
         </div>
-        <div class="mt-2 flex items-end justify-between gap-2">
-          <span class="text-lg tabular-nums text-highlighted">{{ formatCurrency(a.balance, a.currency) }}</span>
-          <UBadge v-if="a.unreconciledCount" color="warning" variant="subtle" size="sm">{{ a.unreconciledCount }} to reconcile</UBadge>
-          <span v-else-if="a.transactionCount" class="text-xs text-dimmed">All reconciled</span>
+        <p class="truncate text-xs text-dimmed">{{ BANK_LABELS[a.bank] || "Other" }}{{ a.accountLast4 ? ` · ${a.accountLast4}` : "" }} · {{ a.currency }}</p>
+        <div class="mt-1 flex items-center justify-between gap-2">
+          <span class="tabular-nums text-highlighted">{{ formatCurrency(a.balance, a.currency) }}</span>
+          <UBadge v-if="a.unreconciledCount" color="warning" variant="subtle" size="sm">{{ a.unreconciledCount }} to do</UBadge>
+          <UIcon v-else-if="a.transactionCount" name="i-lucide-circle-check" class="size-4 text-success" />
         </div>
       </button>
     </div>
