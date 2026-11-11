@@ -1,33 +1,34 @@
-const { roundMoney } = require("./money");
+const { escapeHtml, formatDate } = require("./html");
+const { formatMoney } = require("./money");
+const { AGING_BUCKETS } = require("./status");
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function formatZar(amount) {
-  return `R ${roundMoney(amount).toLocaleString("en-ZA", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
+const BUCKET_LABELS = { current: "Current", "1-30": "1–30 days", "31-60": "31–60 days", "61-90": "61–90 days", "90+": "90+ days" };
 
 function renderStatementHtml(statement, { companyName = "" } = {}) {
-  const { customer, lines, aging, totalOutstanding, generatedAt } = statement;
+  const { customer, lines, aging = {}, totals = {}, generatedAt } = statement;
   const rows = lines
     .map(
       (line) => `
     <tr>
-      <td>${escapeHtml(line.issueDate)}</td>
+      <td>${escapeHtml(formatDate(line.issueDate))}</td>
       <td>${escapeHtml(line.invoiceNumber)}</td>
-      <td>${escapeHtml(line.dueDate)}</td>
-      <td class="num">${formatZar(line.outstanding)}</td>
-      <td>${escapeHtml(line.agingBucket)}</td>
-      <td class="num">${formatZar(line.balance)}</td>
+      <td>${escapeHtml(formatDate(line.dueDate))}</td>
+      <td>${escapeHtml(line.currency)}</td>
+      <td class="num">${formatMoney(line.outstanding, line.currency)}</td>
+      <td>${escapeHtml(BUCKET_LABELS[line.agingBucket] || line.agingBucket)}</td>
+      <td class="num">${formatMoney(line.balance, line.currency)}</td>
     </tr>`
+    )
+    .join("");
+
+  const summaries = Object.keys(totals)
+    .sort()
+    .map(
+      (c) => `<div class="box">
+      <h2>Aging (${escapeHtml(c)})</h2>
+      ${AGING_BUCKETS.map((b) => `<p>${BUCKET_LABELS[b]}: ${formatMoney(aging[c]?.[b] || 0, c)}</p>`).join("")}
+      <p style="font-size: 18px; font-weight: 700; margin-top: 8px;">Total ${formatMoney(totals[c], c)}</p>
+    </div>`
     )
     .join("");
 
@@ -58,32 +59,13 @@ function renderStatementHtml(statement, { companyName = "" } = {}) {
   ${escapeHtml(customer.address || "").replace(/\n/g, "<br/>")}</p>
   <table>
     <thead>
-      <tr>
-        <th>Issue date</th>
-        <th>Invoice</th>
-        <th>Due</th>
-        <th class="num">Outstanding</th>
-        <th>Aging</th>
-        <th class="num">Balance</th>
-      </tr>
+      <tr><th>Issue date</th><th>Invoice</th><th>Due</th><th>Cur.</th><th class="num">Outstanding</th><th>Aging</th><th class="num">Balance</th></tr>
     </thead>
     <tbody>
-      ${rows || '<tr><td colspan="6" class="muted">No open invoices.</td></tr>'}
+      ${rows || '<tr><td colspan="7" class="muted">No open invoices.</td></tr>'}
     </tbody>
   </table>
-  <div class="summary">
-    <div class="box">
-      <h2>Aging (ZAR)</h2>
-      <p>Current: ${formatZar(aging.current)}</p>
-      <p>30 days: ${formatZar(aging["30"])}</p>
-      <p>60 days: ${formatZar(aging["60"])}</p>
-      <p>90+ days: ${formatZar(aging["90+"])}</p>
-    </div>
-    <div class="box">
-      <h2>Total outstanding</h2>
-      <p style="font-size: 22px; font-weight: 700;">${formatZar(totalOutstanding)}</p>
-    </div>
-  </div>
+  <div class="summary">${summaries}</div>
 </body>
 </html>`;
 }

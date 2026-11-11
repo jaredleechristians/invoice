@@ -1,71 +1,100 @@
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { roundMoney } = require("./money");
-const { invoiceStatus } = require("./status");
-const { canWriteRecords } = require("./permissions");
+const { companyRef } = require("./refs");
+const { httpError } = require("./errors");
+const { canWriteRecords, canDeleteRecords, assertCan } = require("./permissions");
 const { logAudit } = require("./audit");
-const { companyRef } = require("./companies");
-const { getInvoice } = require("./invoices");
+const { getInvoice, withComputed } = require("./invoices");
+const { fetchAll } = require("./db");
+const { toIsoDate, todayIso } = require("./dates");
+
+const PAYMENT_METHODS = ["bank_transfer", "cash", "card", "paypal", "wise", "paystack", "other"];
 
 function paymentsCol(db, companyId) {
   return companyRef(db, companyId).collection("payments");
 }
 
-async function listPayments(companyId, { invoiceId } = {}) {
-  const db = getDb();
-  let query = paymentsCol(db, companyId).orderBy("paidAt", "desc");
-  if (invoiceId) query = query.where("invoiceId", "==", invoiceId);
-  const snap = await query.limit(500).get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+/** Sum of non-void payment amounts. Exported for tests. */
+function sumPayments(payments) {
+  return roundMoney((payments || []).filter((p) => !p.voided).reduce((s, p) => s + roundMoney(p.amount), 0));
 }
 
-async function recordPayment(companyId, uid, email, role, body) {
-  if (!canWriteRecords(role)) {
-    const err = new Error("Forbidden");
-    err.status = 403;
-    throw err;
-  }
-  const invoiceId = body.invoiceId;
-  const amount = roundMoney(body.amount);
-  if (!invoiceId || amount <= 0) {
-    const err = new Error("invoiceId and positive amount are required");
-    err.status = 400;
-    throw err;
-  }
-  const db = getDb();
-  const invoiceRef = companyRef(db, companyId).collection("invoices").doc(invoiceId);
-  const paymentId = randomId();
-  const paidAt = body.paidAt || new Date().toISOString();
-  const note = String(body.note || "").trim();
+function normalizePayment(p) {
+  return { ...p, paidAtIso: toIsoDate(p.paidAt), currency: p.currency || "ZAR", method: p.method || "other" };
+}
 
-  const result = await db.runTransaction(async (tx) => {
+async function listPayments(companyId, { invoiceId, includeVoided = true } = {}) {
+  const db = getDb();
+  let query = paymentsCol(db, companyId);
+  if (invoiceId) query = query.where("invoiceId", "==", invoiceId);
+  let rows = (await fetchAll(query)).map(normalizePayment);
+  if (!includeVoided) rows = rows.filter((p) => !p.voided);
+  return rows.sort((a, b) => String(b.paidAtIso).localeCompare(String(a.paidAtIso)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+/**
+ * Re-derive invoice.paidAmount from its payments inside a transaction, applying
+ * `change` (a payment being added/voided/removed) to the set read from Firestore.
+ */
+async function applyPaymentChange(db, companyId, invoiceId, change) {
+  const invoiceRef = companyRef(db, companyId).collection("invoices").doc(invoiceId);
+  return db.runTransaction(async (tx) => {
     const invSnap = await tx.get(invoiceRef);
-    if (!invSnap.exists) {
-      const err = new Error("Invoice not found");
-      err.status = 404;
-      throw err;
-    }
+    if (!invSnap.exists) throw httpError(404, "Invoice not found");
     const invoice = invSnap.data();
-    const paidAmount = roundMoney((invoice.paidAmount || 0) + amount);
-    const computed = invoiceStatus({
-      total: invoice.total,
-      paidAmount,
-      dueDate: invoice.dueDate,
-    });
-    tx.set(paymentsCol(db, companyId).doc(paymentId), {
-      invoiceId,
-      amount,
-      paidAt,
-      note,
-      createdAt: new Date().toISOString(),
+    const paySnap = await tx.get(paymentsCol(db, companyId).where("invoiceId", "==", invoiceId));
+    let payments = paySnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const result = change({ invoice, payments, tx });
+    payments = result.payments;
+    const paidAmount = sumPayments(payments);
+    const computed = withComputed({ ...invoice, paidAmount });
+    tx.set(invoiceRef, { paidAmount, status: computed.status, updatedAt: new Date().toISOString() }, { merge: true });
+    return { ...result, paidAmount, status: computed.status };
+  });
+}
+
+function validatePaymentInput(body) {
+  const amount = roundMoney(body.amount);
+  if (!body.invoiceId || !(amount > 0)) throw httpError(400, "invoiceId and a positive amount are required");
+  const method = PAYMENT_METHODS.includes(body.method) ? body.method : "bank_transfer";
+  const paidAt = toIsoDate(body.paidAt) || todayIso();
+  return {
+    invoiceId: String(body.invoiceId),
+    amount,
+    paidAt,
+    method,
+    reference: String(body.reference || "").trim().slice(0, 120),
+    note: String(body.note || "").trim().slice(0, 500),
+  };
+}
+
+async function recordPayment(companyId, uid, email, role, body = {}) {
+  assertCan(canWriteRecords, role);
+  const input = validatePaymentInput(body);
+  const db = getDb();
+  const paymentId = randomId();
+  const now = new Date().toISOString();
+
+  const result = await applyPaymentChange(db, companyId, input.invoiceId, ({ invoice, payments, tx }) => {
+    if (invoice.voided) throw httpError(409, "Cannot record payments on a void invoice");
+    if (invoice.draft) throw httpError(409, "Finalize the invoice before recording payments");
+    const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments));
+    if (input.amount > outstanding + 0.001) {
+      throw httpError(400, `Payment exceeds the outstanding balance (${outstanding.toFixed(2)} ${invoice.currency || "ZAR"})`);
+    }
+    const doc = {
+      ...input,
+      currency: invoice.currency || "ZAR",
+      invoiceNumber: invoice.invoiceNumber || "",
+      customerId: invoice.customerId || "",
+      customerName: invoice.customerName || "",
+      voided: false,
+      createdAt: now,
       createdBy: uid,
-    });
-    tx.set(
-      invoiceRef,
-      { paidAmount, status: computed.status, updatedAt: new Date().toISOString() },
-      { merge: true }
-    );
-    return { paymentId, paidAmount, status: computed.status };
+    };
+    tx.set(paymentsCol(db, companyId).doc(paymentId), doc);
+    return { payment: { id: paymentId, ...doc }, payments: [...payments, doc] };
   });
 
   await logAudit({
@@ -73,20 +102,47 @@ async function recordPayment(companyId, uid, email, role, body) {
     uid,
     email,
     action: "payment.record",
-    payload: { invoiceId, paymentId: result.paymentId, amount },
+    payload: { invoiceId: input.invoiceId, paymentId, amount: input.amount, currency: result.payment.currency },
   });
-
-  const invoice = await getInvoice(companyId, invoiceId);
-  return {
-    payment: {
-      id: result.paymentId,
-      invoiceId,
-      amount,
-      paidAt,
-      note,
-    },
-    invoice,
-  };
+  return { payment: normalizePayment(result.payment), invoice: await getInvoice(companyId, input.invoiceId) };
 }
 
-module.exports = { listPayments, recordPayment };
+async function loadPayment(db, companyId, paymentId) {
+  const snap = await paymentsCol(db, companyId).doc(paymentId).get();
+  if (!snap.exists) throw httpError(404, "Payment not found");
+  return { id: snap.id, ...snap.data() };
+}
+
+async function voidPayment(companyId, uid, email, role, paymentId, { reason = "" } = {}) {
+  assertCan(canWriteRecords, role);
+  const db = getDb();
+  const payment = await loadPayment(db, companyId, paymentId);
+  if (payment.voided) throw httpError(409, "Payment is already void");
+  const now = new Date().toISOString();
+  const patch = { voided: true, voidedAt: now, voidedBy: uid, voidReason: String(reason || "").slice(0, 500) };
+  await applyPaymentChange(db, companyId, payment.invoiceId, ({ payments, tx }) => {
+    tx.set(paymentsCol(db, companyId).doc(paymentId), patch, { merge: true });
+    return { payments: payments.map((p) => (p.id === paymentId ? { ...p, ...patch } : p)) };
+  });
+  await logAudit({ companyId, uid, email, action: "payment.void", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
+  return { payment: normalizePayment({ ...payment, ...patch }), invoice: await getInvoice(companyId, payment.invoiceId) };
+}
+
+async function deletePayment(companyId, uid, email, role, paymentId) {
+  assertCan(canDeleteRecords, role);
+  const db = getDb();
+  const payment = await loadPayment(db, companyId, paymentId);
+  const invSnap = await companyRef(db, companyId).collection("invoices").doc(payment.invoiceId).get();
+  if (invSnap.exists) {
+    await applyPaymentChange(db, companyId, payment.invoiceId, ({ payments, tx }) => {
+      tx.delete(paymentsCol(db, companyId).doc(paymentId));
+      return { payments: payments.filter((p) => p.id !== paymentId) };
+    });
+  } else {
+    await paymentsCol(db, companyId).doc(paymentId).delete();
+  }
+  await logAudit({ companyId, uid, email, action: "payment.delete", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
+  return { invoice: invSnap.exists ? await getInvoice(companyId, payment.invoiceId) : null };
+}
+
+module.exports = { PAYMENT_METHODS, listPayments, recordPayment, voidPayment, deletePayment, sumPayments };
