@@ -93,7 +93,10 @@ async function runTool(companyId, name, args) {
     return { ...summary, topOverdue };
   }
   if (name === "customer_statement") {
-    return await buildStatement(companyId, args.customerId);
+    // Summary only: the ledger lines would be too long for the model.
+    const st = await buildStatement(companyId, args.customerId);
+    const ledger = Object.fromEntries(Object.entries(st.ledger).map(([c, s]) => [c, { opening: s.opening, invoiced: s.invoiced, paid: s.paid, closing: s.closing }]));
+    return { customer: st.customer, period: st.period, ledger, lines: st.lines, aging: st.aging, totals: st.totals };
   }
   return { error: `Unknown tool: ${name}` };
 }

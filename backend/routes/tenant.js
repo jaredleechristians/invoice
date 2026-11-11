@@ -93,12 +93,14 @@ company.post("/customers", h((req) => customers.createCustomer(...actor(req), re
 company.patch("/customers/:customerId", h((req) => customers.updateCustomer(...actor(req), req.params.customerId, req.body || {})));
 company.delete("/customers/:customerId", h((req) => customers.deleteCustomer(...actor(req), req.params.customerId)));
 
-company.get("/customers/:customerId/statement", h((req) => buildStatement(req.companyId, req.params.customerId, { asOf: req.query.asOf })));
+const statementRange = (q) => ({ from: q.from, to: q.to, asOf: q.asOf });
+company.get("/customers/:customerId/statement", h((req) => buildStatement(req.companyId, req.params.customerId, statementRange(req.query))));
 company.get("/customers/:customerId/statement.pdf", h(async (req, res) => {
-  const statement = await buildStatement(req.companyId, req.params.customerId, { asOf: req.query.asOf });
+  const statement = await buildStatement(req.companyId, req.params.customerId, statementRange(req.query));
   const c = await invoices.loadCompany(req.companyId);
-  const html = renderStatementHtml(statement, { companyName: c.name || "" });
-  await sendPdf(res, html, `${safeName(statement.customer?.name, "statement")}-statement.pdf`);
+  const html = renderStatementHtml(statement, { company: c });
+  if (req.query.format === "html") return res.type("html").send(html);
+  await sendPdf(res, html, `${safeName(statement.customer?.name, "statement")}-statement-${statement.period.to}.pdf`);
 }));
 
 company.get("/receivables", h(async (req) => ({ receivables: await listReceivables(req.companyId) })));
