@@ -12,10 +12,10 @@ const {
 const { logAudit } = require("./audit");
 const { SUPPORTED_CURRENCIES, normalizeCurrency, parseAmount } = require("./money");
 const { readCounter } = require("./numbering");
+const { paymentAccounts } = require("./bankAccounts");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOGO_BYTES = 300 * 1024;
-const MAX_BANK_ACCOUNTS = 10;
 
 const COMPANY_DEFAULTS = {
   legalName: "",
@@ -83,9 +83,12 @@ async function getCompany(companyId) {
     readCounter(companyId, "invoices"),
     readCounter(companyId, "quotes"),
   ]);
+  const data = snap.data();
   return {
     id: snap.id,
-    ...withDefaults(snap.data()),
+    ...withDefaults(data),
+    // Read-only: payment details now live in the bank accounts collection.
+    bankAccounts: await paymentAccounts(companyId, data),
     invoicePrefix: inv.prefix,
     invoiceNextNumber: inv.next,
     quotePrefix: quo.prefix,
@@ -132,19 +135,6 @@ async function bootstrapUser({ uid, email, displayName }) {
 }
 
 const str = (v, max = 2000) => String(v ?? "").trim().slice(0, max);
-
-function normalizeBankAccounts(list) {
-  if (!Array.isArray(list)) throw httpError(400, "bankAccounts must be an array");
-  if (list.length > MAX_BANK_ACCOUNTS) throw httpError(400, `At most ${MAX_BANK_ACCOUNTS} bank accounts`);
-  return list
-    .map((a) => ({
-      id: str(a?.id, 40) || randomId(6),
-      label: str(a?.label, 80),
-      currency: a?.currency ? normalizeCurrency(a.currency, "") : "",
-      details: str(a?.details, 1000),
-    }))
-    .filter((a) => a.label || a.details);
-}
 
 function validateLogo(value) {
   const v = String(value || "");
@@ -222,7 +212,8 @@ function normalizeSettingsPatch(patch = {}) {
     if (!Number.isInteger(d) || d < 0 || d > 365) throw httpError(400, "Quote validity must be 0–365 days");
     out.quoteValidDays = d;
   }
-  if (patch.bankAccounts !== undefined) out.bankAccounts = normalizeBankAccounts(patch.bankAccounts);
+  // bankAccounts is no longer written here: manage them via /bank-accounts.
+  // The old field is kept untouched for safety.
   if (patch.invoicePrefix !== undefined) out.invoicePrefix = validatePrefix(patch.invoicePrefix);
   if (patch.quotePrefix !== undefined) out.quotePrefix = validatePrefix(patch.quotePrefix);
   if (patch.invoiceNextNumber !== undefined) out.invoiceNextNumber = validateNextNumber(patch.invoiceNextNumber);

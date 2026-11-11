@@ -68,7 +68,8 @@ test("currencies are kept apart; no from date means from the start; bad range re
 
 test("buildStatement end to end, JSON stays compatible, HTML matches the invoice design", async () => {
   const co = (await companies.createCompany({ uid: "s1", email: "s1@example.com", name: "Robot Web" })).id;
-  await companies.updateCompanySettings(co, ...OWNER, { vatNumber: "4123456789", vatRegistered: false, bankAccounts: [{ label: "FNB", currency: "ZAR", details: "Acc 123" }] });
+  await companies.updateCompanySettings(co, ...OWNER, { vatNumber: "4123456789", vatRegistered: false });
+  await require("../lib/bankAccounts").createAccount(co, ...OWNER, { name: "FNB", bank: "fnb", currency: "ZAR", details: "Acc 123" });
   const cust = await customers.createCustomer(co, ...OWNER, { name: "Acme Pty Ltd", email: "ap@acme.test", address: "1 Long St\nCape Town" });
   const a = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: cust.id, issueDate: "2026-10-01", dueDate: "2026-10-31", items: [{ description: "Dev", qty: 10, unitPrice: 100 }] });
   await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: cust.id, issueDate: "2026-11-01", dueDate: "2026-11-30", items: [{ description: "Dev", qty: 5, unitPrice: 100 }] });

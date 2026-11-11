@@ -8,6 +8,7 @@ const { canDeleteRecords, canWriteRecords, assertCan } = require("./permissions"
 const { logAudit } = require("./audit");
 const { allocateNumber } = require("./numbering");
 const { fetchAll } = require("./db");
+const { paymentAccounts } = require("./bankAccounts");
 const { toIsoDate, todayIso, addDaysIso } = require("./dates");
 const {
   normalizeLines,
@@ -53,11 +54,16 @@ function cleanExchangeRate(value) {
   return Math.round(n * 1e6) / 1e6;
 }
 
+/**
+ * Company settings for documents. bankAccounts comes from the bank accounts
+ * collection (accounts marked "Show on invoices"), not the old settings field.
+ */
 async function loadCompany(companyId) {
   const db = getDb();
   const snap = await companyRef(db, companyId).get();
   if (!snap.exists) throw httpError(404, "Company not found");
-  return snap.data();
+  const data = snap.data();
+  return { ...data, bankAccounts: await paymentAccounts(companyId, data) };
 }
 
 async function listInvoices(companyId, { q, status, customerId, currency, limit } = {}) {

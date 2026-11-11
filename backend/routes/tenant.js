@@ -192,6 +192,11 @@ company.get("/expenses/:expenseId/receipt", h(async (req, res) => {
 // ---------- bank accounts, imports and reconciliation ----------
 
 company.get("/bank-accounts", h(async (req) => ({ accounts: await bankAccounts.listAccounts(req.companyId), banks: bankAccounts.BANK_OPTIONS })));
+// Copy the old settings payment details into bank accounts (safe to repeat).
+company.post("/bank-accounts/migrate", h(async (req) => {
+  if (!["owner", "admin"].includes(req.role)) throw httpError(403, "Only owners and admins can do this");
+  return { created: await bankAccounts.migrateLegacyAccounts(req.companyId) };
+}));
 company.post("/bank-accounts", h((req) => bankAccounts.createAccount(...actor(req), req.body || {}), 201));
 company.patch("/bank-accounts/:accountId", h((req) => bankAccounts.updateAccount(...actor(req), req.params.accountId, req.body || {})));
 company.delete("/bank-accounts/:accountId", h((req) => bankAccounts.deleteAccount(...actor(req), req.params.accountId)));

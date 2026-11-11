@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { setupFake } = require("./helpers/setup");
 
-setupFake();
+const fakeDb = setupFake();
 const companies = require("../lib/companies");
 const invoices = require("../lib/invoices");
 const payments = require("../lib/payments");
@@ -329,4 +329,34 @@ test("bank list: SA banks alphabetical, Wise/PayPal/Other last; legacy values ma
   const a = await accounts.createAccount(co, ...OWNER, { name: "FNB biz", bank: "fnb", currency: "ZAR" });
   assert.equal(a.bank, "fnb");
   await accounts.deleteAccount(co, ...OWNER, a.id);
+});
+
+test("migration is idempotent even if the done flag is lost, and skips empty rows", async () => {
+  const c2 = (await companies.createCompany({ uid: "u1", email: "u1@example.com", name: "Legacy Co" })).id;
+  await fakeDb.doc(`companies/${c2}`).set({ bankAccounts: [{ label: "Main", currency: "ZAR", details: "Bank: Standard Bank\nAccount number: 123456789" }, { label: "", details: "" }, { label: "No id", details: "Pay via EFT" }] }, { merge: true });
+  assert.equal(await accounts.migrateLegacyAccounts(c2), 2);
+  await fakeDb.doc(`companies/${c2}`).set({ bankAccountsMigratedAt: null }, { merge: true });
+  assert.equal(await accounts.migrateLegacyAccounts(c2), 0, "fixed ids: no duplicates");
+  const list = await accounts.listAccounts(c2);
+  assert.equal(list.length, 2);
+  assert.equal(list.find((a) => a.name === "Main").bank, "standard_bank");
+});
+
+test("payment details: text from fields, matching currency first, hidden accounts left out", async () => {
+  const { issuerSnapshot } = require("../lib/documents");
+  assert.equal(
+    accounts.paymentDetailsText({ bank: "fnb", accountHolder: "Robot Web", accountNumber: "62000000000", branchCode: "250655", swift: "FIRNZAJJ", details: "Use the invoice number" }),
+    "Bank: FNB (First National Bank)\nAccount name: Robot Web\nAccount number: 62000000000\nBranch code: 250655\nSWIFT: FIRNZAJJ\nUse the invoice number"
+  );
+  const c3 = (await companies.createCompany({ uid: "u1", email: "u1@example.com", name: "Pay Co" })).id;
+  await accounts.createAccount(c3, ...OWNER, { name: "ZAR cheque", bank: "fnb", currency: "ZAR", accountNumber: "1111" });
+  await accounts.createAccount(c3, ...OWNER, { name: "USD Wise", bank: "wise", currency: "USD", accountNumber: "2222" });
+  await accounts.createAccount(c3, ...OWNER, { name: "Savings", bank: "fnb", currency: "ZAR", showOnInvoices: false });
+  const company = await invoices.loadCompany(c3);
+  assert.deepEqual(company.bankAccounts.map((a) => a.label), ["USD Wise", "ZAR cheque"], "hidden accounts are not payment details");
+  assert.deepEqual(issuerSnapshot(company, "USD").bankAccounts.map((a) => a.label), ["USD Wise"]);
+  assert.deepEqual(issuerSnapshot(company, "ZAR").bankAccounts.map((a) => a.label), ["ZAR cheque"]);
+  assert.deepEqual(issuerSnapshot(company, "EUR").bankAccounts.map((a) => a.label), ["USD Wise", "ZAR cheque"], "no match: show all");
+  const got = await accounts.getAccount(c3, (await accounts.listAccounts(c3)).find((a) => a.name === "ZAR cheque").id);
+  assert.equal(got.accountLast4, "1111", "last 4 derived from the account number");
 });
