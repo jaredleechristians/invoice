@@ -332,7 +332,7 @@ async function matchInvoice(ctx, tx, body) {
   if (sameCurrency && amount > tx.amount + 0.001) throw httpError(400, "Amount is more than the bank line");
   const rate = await invoiceRateFor(companyId, uid, email, role, invoice, body);
   const fx = computeForex({ invoiceCurrency: invoice.currency, amount, receivedCurrency: tx.currency, receivedAmount: sameCurrency ? amount : tx.amount, invoiceRate: rate });
-  const method = account.bank === "wise" ? "wise" : "bank_transfer";
+  const method = account.bank === "wise" ? "wise" : account.bank === "paypal" ? "paypal" : "bank_transfer";
   const res = await payments.recordPayment(
     companyId, uid, email, role,
     { invoiceId: invoice.id, amount, paidAt: tx.date, method, reference: tx.reference || tx.description, note: "From bank import" },

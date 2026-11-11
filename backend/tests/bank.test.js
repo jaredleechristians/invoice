@@ -313,3 +313,20 @@ test("ignore, filters, and deleting an import", async () => {
   await assert.rejects(() => accounts.deleteAccount(co, ...OWNER, cheque.id), /has transactions/);
   await accounts.deleteAccount(co, ...OWNER, savings.id);
 });
+
+test("bank list: SA banks alphabetical, Wise/PayPal/Other last; legacy values map to stable keys", async () => {
+  const labels = accounts.BANK_OPTIONS.map((b) => b.label);
+  const tail = labels.slice(-3);
+  assert.deepEqual(tail, ["Wise", "PayPal", "Other"]);
+  const sa = labels.slice(0, -3);
+  assert.deepEqual(sa, [...sa].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" })));
+  assert.equal(new Set(accounts.BANKS).size, accounts.BANKS.length, "keys are unique");
+  for (const k of ["absa", "fnb", "capitec_business", "tymebank", "standard_bank", "paypal"]) assert.ok(accounts.BANKS.includes(k));
+  assert.equal(accounts.normalizeBank("standard-bank"), "standard_bank");
+  assert.equal(accounts.normalizeBank("Standard Bank"), "standard_bank");
+  assert.equal(accounts.normalizeBank("mercantile"), "capitec_business");
+  assert.equal(accounts.normalizeBank("nope"), "other");
+  const a = await accounts.createAccount(co, ...OWNER, { name: "FNB biz", bank: "fnb", currency: "ZAR" });
+  assert.equal(a.bank, "fnb");
+  await accounts.deleteAccount(co, ...OWNER, a.id);
+});

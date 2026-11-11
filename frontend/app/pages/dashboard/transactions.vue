@@ -61,7 +61,14 @@ type Suggestions = {
 };
 type ImportRecord = { id: string; accountId: string; filename: string; format: string; importedCount: number; duplicateCount: number; from: string; to: string; createdAt: string };
 
-const BANK_LABELS: Record<string, string> = { standard_bank: "Standard Bank", wise: "Wise", other: "Other" };
+type BankOption = { value: string; label: string };
+// Fallback until the API sends its list (the API is the source of truth).
+const banks = ref<BankOption[]>([
+  { value: "standard_bank", label: "Standard Bank" },
+  { value: "wise", label: "Wise" },
+  { value: "other", label: "Other" },
+]);
+const BANK_LABELS = computed<Record<string, string>>(() => Object.fromEntries(banks.value.map((b) => [b.value, b.label])));
 const STATUS_LABELS: Record<string, string> = {
   unreconciled: "Unreconciled",
   processing: "Unreconciled",
@@ -111,8 +118,9 @@ function accountLabel(a?: BankAccount) {
 }
 
 async function loadAccounts() {
-  const res = await capi<{ accounts: BankAccount[] }>("/bank-accounts");
+  const res = await capi<{ accounts: BankAccount[]; banks?: BankOption[] | string[] }>("/bank-accounts");
   accounts.value = res.accounts;
+  if (Array.isArray(res.banks) && res.banks.length && typeof res.banks[0] === "object") banks.value = res.banks as BankOption[];
 }
 
 async function loadTransactions() {
@@ -169,7 +177,7 @@ const accountForm = reactive({
   saving: false,
   error: "",
 });
-const BANK_OPTIONS = Object.entries(BANK_LABELS).map(([value, label]) => ({ label, value }));
+const BANK_OPTIONS = computed(() => banks.value.map((b) => ({ label: b.label, value: b.value })));
 
 function openAccount(a?: BankAccount) {
   Object.assign(accountForm, {
@@ -672,7 +680,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
           <UAlert v-if="accountForm.error" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="accountForm.error" />
           <UFormField label="Name" required><UInput v-model="accountForm.name" placeholder="e.g. Business cheque" autofocus class="w-full" /></UFormField>
           <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="Bank"><AppSelect v-model="accountForm.bank" :options="BANK_OPTIONS" /></UFormField>
+            <UFormField label="Bank"><AppSelect v-model="accountForm.bank" searchable :options="BANK_OPTIONS" /></UFormField>
             <UFormField label="Currency"><AppSelect v-model="accountForm.currency" :options="currencies.map((c) => ({ label: c, value: c }))" /></UFormField>
           </div>
           <UFormField label="Last 4 digits" hint="Optional"><UInput v-model="accountForm.accountLast4" maxlength="4" inputmode="numeric" class="w-full" /></UFormField>
