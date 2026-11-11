@@ -160,6 +160,9 @@ const productOptions = computed(() =>
 );
 // @products-end
 
+// Line fields show their own label on mobile; desktop uses the header row.
+const LINE_FIELD_UI = { labelWrapper: "sm:hidden" };
+
 function move(i: number, dir: -1 | 1) {
   const j = i + dir;
   if (j < 0 || j >= form.items.length) return;
@@ -237,34 +240,57 @@ function submit(finalize: boolean) {
     <UCard>
       <template #header><span class="font-medium">Line items</span></template>
       <div class="space-y-3">
+        <!-- Column headers (desktop). On mobile every field carries its own label. -->
+        <div
+          class="hidden sm:grid grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_8.5rem_5.5rem] gap-3 border-b border-default pb-2 text-xs font-medium uppercase tracking-wide text-dimmed"
+        >
+          <span>Item / description</span>
+          <span class="text-right">Qty</span>
+          <span class="text-right">Price ({{ form.currency }})</span>
+          <span class="text-right">Amount</span>
+          <span class="sr-only">Actions</span>
+        </div>
+
         <div
           v-for="(line, i) in form.items"
           :key="i"
-          class="grid gap-2 sm:grid-cols-[1fr_6rem_8rem_8rem_auto] items-start border-b border-default pb-3"
+          class="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_8.5rem_5.5rem] items-start border-b border-default pb-3 last:border-b-0"
         >
-          <div class="space-y-2">
-            <!-- @products-start -->
-            <AppSelect
-              v-if="products.length"
-              :model-value="line.productId || ''"
-              placeholder="Pick from catalogue (optional)"
-              searchable
-              icon="i-lucide-package"
-              :options="productOptions"
-              @update:model-value="applyProduct(line, String($event))"
-            />
-            <!-- @products-end -->
-            <UInput v-model="line.description" placeholder="Description" class="w-full" />
-            <UTextarea v-model="line.note" :rows="1" autoresize placeholder="Details (optional)" class="w-full" />
-            <UCheckbox v-if="vatRate > 0" v-model="line.taxable" :label="`VAT ${vatRate}%`" />
-          </div>
-          <UInput v-model.number="line.qty" type="number" step="any" placeholder="Qty" />
-          <UInput v-model.number="line.unitPrice" type="number" step="0.01" placeholder="Unit price" />
-          <p class="text-right tabular-nums pt-1.5">{{ formatCurrency(lineTotal(line), form.currency) }}</p>
-          <div class="flex gap-1">
-            <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-arrow-up" :disabled="i === 0" @click="move(i, -1)" />
-            <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-arrow-down" :disabled="i === form.items.length - 1" @click="move(i, 1)" />
-            <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="form.items.splice(i, 1)" />
+          <UFormField label="Item / description" class="col-span-2 sm:col-span-1" :ui="LINE_FIELD_UI">
+            <div class="space-y-2">
+              <UInput v-model="line.description" placeholder="Description" aria-label="Description" class="w-full" />
+              <UTextarea v-model="line.note" :rows="1" autoresize placeholder="Details (optional)" aria-label="Details" class="w-full" />
+              <div v-if="products.length || vatRate > 0" class="flex flex-wrap items-center gap-3">
+                <!-- @products-start -->
+                <div v-if="products.length" class="min-w-0 flex-1 sm:max-w-xs">
+                  <AppSelect
+                    :model-value="line.productId || ''"
+                    placeholder="Fill from a product (optional)"
+                    searchable
+                    size="sm"
+                    icon="i-lucide-package"
+                    :options="productOptions"
+                    @update:model-value="applyProduct(line, String($event))"
+                  />
+                </div>
+                <!-- @products-end -->
+                <UCheckbox v-if="vatRate > 0" v-model="line.taxable" :label="`VAT ${vatRate}%`" />
+              </div>
+            </div>
+          </UFormField>
+          <UFormField label="Qty" :ui="LINE_FIELD_UI">
+            <UInput v-model.number="line.qty" type="number" step="any" aria-label="Quantity" class="w-full" :ui="{ base: 'text-right tabular-nums' }" />
+          </UFormField>
+          <UFormField :label="`Price (${form.currency})`" :ui="LINE_FIELD_UI">
+            <UInput v-model.number="line.unitPrice" type="number" step="0.01" aria-label="Unit price" class="w-full" :ui="{ base: 'text-right tabular-nums' }" />
+          </UFormField>
+          <UFormField label="Amount" :ui="LINE_FIELD_UI">
+            <p class="flex h-8 items-center justify-end tabular-nums font-medium">{{ formatCurrency(lineTotal(line), form.currency) }}</p>
+          </UFormField>
+          <div class="flex h-8 items-center justify-end gap-0.5 self-end sm:self-start">
+            <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-arrow-up" aria-label="Move up" :disabled="i === 0" @click="move(i, -1)" />
+            <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-arrow-down" aria-label="Move down" :disabled="i === form.items.length - 1" @click="move(i, 1)" />
+            <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash" aria-label="Remove line" @click="form.items.splice(i, 1)" />
           </div>
         </div>
         <UButton size="sm" variant="soft" icon="i-lucide-plus" @click="form.items.push(blankLine())">Add line</UButton>
