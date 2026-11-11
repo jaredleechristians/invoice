@@ -265,7 +265,7 @@ function submit(finalize: boolean) {
     <div class="flex flex-wrap gap-2">
       <template v-if="isInvoice">
         <UButton type="submit" :loading="saving" variant="soft">{{ isDraft ? "Save draft" : "Save changes" }}</UButton>
-        <UButton v-if="isDraft" :loading="saving" icon="i-lucide-check" @click="submit(true)">Save &amp; finalize</UButton>
+        <UButton v-if="isDraft && isInvoice" :loading="saving" icon="i-lucide-check" @click="submit(true)">Publish</UButton>
       </template>
       <UButton v-else type="submit" :loading="saving">Save quote</UButton>
     </div>

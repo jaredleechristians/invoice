@@ -120,7 +120,7 @@ ${canWrite ? `- You can PROPOSE new records with the propose_* tools: customers,
   * which invoice a payment is for, when the customer has more than one unpaid invoice.
   Ask one short question at a time. Look things up with the read tools before asking, when that settles it.
 - If a propose_* tool returns needsClarification, ask the user that question (offer the candidates if listed). Do not retry with guessed values.
-- Invoices and quotes are created as DRAFTS only. You cannot finalize, send, void or delete anything, or delete payments; tell the user to do that in the app.` : `- This user does not have permission to add or change records. If they ask, explain that an owner or admin can do it.`}
+- Invoices and quotes are created as DRAFTS only. You cannot publish, send, void or delete anything, or delete payments; tell the user to do that in the app.` : `- This user does not have permission to add or change records. If they ask, explain that an owner or admin can do it.`}
 
 TOOLS
 - Use native tool calls when available. If you cannot, reply with ONLY a JSON object on its own, no other text:

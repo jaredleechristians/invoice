@@ -80,7 +80,7 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
 
   const result = await applyPaymentChange(db, companyId, input.invoiceId, ({ invoice, payments, tx }) => {
     if (invoice.voided) throw httpError(409, "Cannot record payments on a void invoice");
-    if (invoice.draft) throw httpError(409, "Finalize the invoice before recording payments");
+    if (invoice.draft) throw httpError(409, "Publish the invoice before recording payments");
     const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments));
     if (input.amount > outstanding + 0.001) {
       throw httpError(400, `Payment exceeds the outstanding balance (${outstanding.toFixed(2)} ${invoice.currency || "ZAR"})`);

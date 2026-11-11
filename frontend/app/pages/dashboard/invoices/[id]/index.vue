@@ -102,7 +102,7 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
       </template>
       <template v-if="invoice">
         <UButton v-if="!invoice.voided" :to="`/dashboard/invoices/${invoice.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
-        <UButton v-if="invoice.draft" icon="i-lucide-check" :loading="busy === 'finalize'" @click="finalize">Finalize</UButton>
+        <UButton v-if="invoice.draft" icon="i-lucide-check" :loading="busy === 'finalize'" @click="finalize">Publish</UButton>
         <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
         <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
         <UButton v-if="isAdmin && !invoice.draft && !invoice.voided" variant="ghost" color="warning" icon="i-lucide-ban" :loading="busy === 'void'" @click="voidInvoice">Void</UButton>

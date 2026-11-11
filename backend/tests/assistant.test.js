@@ -231,7 +231,7 @@ test("a draft can't take a payment and finalized invoices can't be edited throug
   const fin = (await call(ALICE, "GET", `/companies/${co}/invoices?status=unpaid`)).data.invoices.find((i) => !i.draft);
   const edit = await prepareAction(co, "propose_update_draft_invoice", { invoice: fin.invoiceNumber, changes: { notes: "x" } });
   assert.equal(edit.needsClarification, true);
-  assert.match(edit.question, /finalized/);
+  assert.match(edit.question, /published/);
 });
 
 // ---------- permissions ----------

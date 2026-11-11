@@ -104,9 +104,9 @@ async function requireInvoice(companyId, invoiceId) {
 
 function assertFinalizable(doc) {
   const lines = (doc.items || []).filter((i) => String(i.description || "").trim());
-  if (!lines.length) throw httpError(400, "Add at least one line item before finalizing");
+  if (!lines.length) throw httpError(400, "Add at least one line item before publishing");
   if (!doc.customerId && !String(doc.billTo || doc.customerName || "").trim()) {
-    throw httpError(400, "Pick a customer before finalizing");
+    throw httpError(400, "Pick a customer before publishing");
   }
   if (roundMoney(doc.total) < 0) throw httpError(400, "Invoice total cannot be negative");
 }
@@ -251,7 +251,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
 
 async function finalizeInvoice(companyId, uid, email, role, invoiceId) {
   const existing = await requireInvoice(companyId, invoiceId);
-  if (!existing.draft) throw httpError(409, "Invoice is already finalized");
+  if (!existing.draft) throw httpError(409, "Invoice is already published");
   return updateInvoice(companyId, uid, email, role, invoiceId, { finalize: true });
 }
 

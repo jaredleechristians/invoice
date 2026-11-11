@@ -58,7 +58,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <PageHeader info="Drafts get a number when you finalize them.">
+    <PageHeader info="Drafts get a number when you publish them.">
       <template #filters>
         <UInput v-model="q" placeholder="Search number or customer" class="w-full sm:w-72" icon="i-lucide-search" />
         <div class="w-full sm:w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>

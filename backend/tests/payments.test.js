@@ -69,7 +69,7 @@ test("sumPayments ignores voided payments and rounds to cents", () => {
 
 test("drafts cannot take payments; invoices with payments cannot be voided, deleted, re-currencied or shrunk", async () => {
   const draft = await invoices.createInvoice(co, ...OWNER, { draft: true, customerName: "C", items: [{ description: "x", qty: 1, unitPrice: 10 }] });
-  await assert.rejects(() => payments.recordPayment(co, ...OWNER, { invoiceId: draft.id, amount: 5 }), /Finalize/);
+  await assert.rejects(() => payments.recordPayment(co, ...OWNER, { invoiceId: draft.id, amount: 5 }), /Publish/);
 
   await payments.recordPayment(co, ...OWNER, { invoiceId: inv.id, amount: 50 });
   await assert.rejects(() => invoices.voidInvoice(co, ...OWNER, inv.id), /payments first/);

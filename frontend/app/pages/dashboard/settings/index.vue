@@ -121,7 +121,7 @@ async function save() {
 
 <template>
   <div class="mx-auto w-full max-w-4xl space-y-6">
-    <PageHeader title="Company settings" info="Shown on invoices and quotes. Finalized invoices keep the details they were issued with.">
+    <PageHeader title="Company settings" info="Shown on invoices and quotes. Published invoices keep the details they were issued with.">
       <UButton to="/dashboard/settings/members" variant="soft" icon="i-lucide-users">Members</UButton>
     </PageHeader>
 
@@ -202,7 +202,7 @@ async function save() {
                 />
               </div>
             </UFormField>
-            <p class="text-xs text-dimmed sm:col-span-3">Numbers are allocated when an invoice is finalized. If you lower the next number, numbers already used are skipped automatically.</p>
+            <p class="text-xs text-dimmed sm:col-span-3">Numbers are allocated when an invoice is published. If you lower the next number, numbers already used are skipped automatically.</p>
             <UFormField label="Default invoice notes" class="sm:col-span-3"><UTextarea v-model="form.defaultNotes" :rows="2" class="w-full" placeholder="Thank you for your business. Please use the invoice number as reference." /></UFormField>
             <UFormField label="Legal line (small print)" class="sm:col-span-3"><UTextarea v-model="form.legal" :rows="2" class="w-full" /></UFormField>
             <UFormField label="Footer" class="sm:col-span-3"><UInput v-model="form.footer" class="w-full" /></UFormField>

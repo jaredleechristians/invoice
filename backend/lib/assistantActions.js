@@ -69,11 +69,11 @@ const WRITE_TOOL_DEFS = [
     amount: num("Amount paid"), currency: CURRENCY, date: ISO("Date paid"), vendor: str("Who was paid"),
     category: str("Expense category name (e.g. Fuel, Software)"), reference: str("Reference"), notes: str("Notes"),
   }, ["amount", "currency", "date"]),
-  fn("propose_create_draft_invoice", "Propose a DRAFT invoice. Never finalizes; the user finalizes it in the app.", {
+  fn("propose_create_draft_invoice", "Propose a DRAFT invoice. Never publishes; the user publishes it in the app.", {
     customer: str("Existing customer name or id"), currency: CURRENCY, items: LINES,
     issueDate: ISO("Issue date"), dueDate: ISO("Due date"), reference: str("Reference / PO"), notes: str("Notes shown on the invoice"),
   }, ["customer", "currency", "items"]),
-  fn("propose_update_draft_invoice", "Propose changing simple fields on a DRAFT invoice (not finalized ones).", {
+  fn("propose_update_draft_invoice", "Propose changing simple fields on a DRAFT invoice (not published ones).", {
     invoice: str("Invoice id, or the customer name for their draft"),
     changes: { type: "object", properties: { issueDate: ISO("Issue date"), dueDate: ISO("Due date"), reference: str("Reference"), notes: str("Notes") }, additionalProperties: false },
   }, ["invoice", "changes"]),
@@ -81,7 +81,7 @@ const WRITE_TOOL_DEFS = [
     customer: str("Existing customer name or id"), currency: CURRENCY, items: LINES,
     issueDate: ISO("Quote date"), expiryDate: ISO("Valid until"), notes: str("Notes"),
   }, ["customer", "currency", "items"]),
-  fn("propose_record_payment", "Propose recording a payment received against one finalized invoice.", {
+  fn("propose_record_payment", "Propose recording a payment received against one published invoice.", {
     invoice: str("Invoice number (e.g. INV-0007) or id"), amount: num("Amount received, in the invoice currency"),
     payInFull: { type: "boolean", description: "True when the user said the invoice was paid in full" },
     date: ISO("Date received"), method: { type: "string", enum: payments.PAYMENT_METHODS }, reference: str("Payment reference"),
@@ -312,7 +312,7 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
           { label: isInvoice ? "Issue date" : "Quote date", value: issue.date ? fmtDate(issue.date) : "Today" },
           { label: isInvoice ? "Due date" : "Valid until", value: end.date ? fmtDate(end.date) : "Company default terms" },
           ...(r.row.currency && r.row.currency !== c.currency ? [{ label: "Note", value: `${r.row.name} usually pays in ${r.row.currency}` }] : []),
-          { label: "Status", value: "Draft (you finalize it in the app)" },
+          { label: "Status", value: "Draft (you publish it in the app)" },
         ],
       };
     }
@@ -320,7 +320,7 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
       const all = await invoices.listInvoices(companyId);
       const drafts = all.filter((i) => i.draft && !i.voided);
       const byId = all.find((i) => i.id === args.invoice || (i.invoiceNumber && i.invoiceNumber.toLowerCase() === String(args.invoice || "").toLowerCase()));
-      if (byId && !byId.draft) return ask(`${byId.invoiceNumber} is already finalized, so I can't change it. Edit it in the app if you need to.`);
+      if (byId && !byId.draft) return ask(`${byId.invoiceNumber} is already published, so I can't change it. Edit it in the app if you need to.`);
       const r = byId ? { row: byId } : resolveOne(drafts, args.invoice, { label: "draft invoice", nameOf: (i) => i.customerName });
       if (r.error) return r.error;
       const changes = pick(args.changes || {}, ["issueDate", "dueDate", "reference", "notes"]);
@@ -353,7 +353,7 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
         } else return ask(`I couldn't find an unpaid invoice matching "${q}". Which invoice is it?`);
       }
       if (inv.voided) return ask(`${inv.invoiceNumber} is void, so it can't take payments.`);
-      if (inv.draft) return ask("That invoice is still a draft. Finalize it in the app before recording payments.");
+      if (inv.draft) return ask("That invoice is still a draft. Publish it in the app before recording payments.");
       if (!(inv.outstanding > 0)) return ask(`${inv.invoiceNumber} is already paid in full.`);
       let amount = args.payInFull ? inv.outstanding : roundMoney(args.amount);
       if (!(amount > 0)) return ask(`How much was received for ${inv.invoiceNumber}? (${formatMoney(inv.outstanding, inv.currency)} is outstanding.)`, { missing: ["amount"] });
