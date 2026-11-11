@@ -70,8 +70,28 @@ export const STATUS_COLORS: Record<string, "success" | "error" | "warning" | "ne
   expired: "warning",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  open: "Open",
+  draft: "Draft",
+  unpaid: "Unpaid",
+  partially_paid: "Partially paid",
+  overdue: "Overdue",
+  paid: "Paid",
+  void: "Void",
+  voided: "Void",
+  sent: "Sent",
+  accepted: "Accepted",
+  declined: "Declined",
+  converted: "Converted",
+  expired: "Expired",
+};
+
+/** Human label for an invoice/quote status, e.g. "partially_paid" → "Partially paid". */
 export function statusLabel(s?: string) {
-  return String(s || "").replace(/_/g, " ");
+  const key = String(s || "");
+  if (STATUS_LABELS[key]) return STATUS_LABELS[key];
+  const text = key.replace(/_/g, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {

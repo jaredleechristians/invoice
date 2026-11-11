@@ -45,7 +45,7 @@ watch(activeCompanyId, load, { immediate: true });
     <div class="flex flex-wrap gap-2">
       <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
       <div class="w-44">
-        <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: s, value: s }))" />
+        <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: statusLabel(s), value: s }))" />
       </div>
     </div>
     <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-default">
