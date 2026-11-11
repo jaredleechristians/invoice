@@ -63,7 +63,6 @@ watch(activeCompanyId, load, { immediate: true });
         <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
         <div class="w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>
         <div class="w-32"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
-        <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" aria-label="Refresh" @click="load" />
       </template>
       <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">New invoice</UButton>
     </PageHeader>

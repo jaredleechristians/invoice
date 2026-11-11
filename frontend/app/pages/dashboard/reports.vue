@@ -99,7 +99,6 @@ watch(activeCompanyId, load, { immediate: true });
     <PageHeader info="Split by currency — amounts are never converted or added across currencies. P&L is cash basis (payments received minus expenses).">
       <template #filters>
         <DatePicker v-model="rangeModel" range :presets="PRESETS" />
-        <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="loading" aria-label="Refresh" @click="load" />
       </template>
       <UDropdownMenu :items="exportItems" :content="{ align: 'end' }" :disabled="!data">
         <UButton variant="soft" color="neutral" icon="i-lucide-download" trailing-icon="i-lucide-chevron-down" :disabled="!data">Export</UButton>
