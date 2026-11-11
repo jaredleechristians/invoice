@@ -1,4 +1,5 @@
 const { roundMoney } = require("./money");
+const { toIsoDate, todayIso, daysBetween } = require("./dates");
 
 function parseHumanDate(value) {
   if (!value) return null;
@@ -9,44 +10,55 @@ function parseHumanDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function startOfDay(date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function invoiceStatus({ total, paidAmount, dueDate }, now = new Date()) {
+/**
+ * Derived payment status. Stored status is a snapshot; always recompute on read
+ * because "overdue" depends on today's date.
+ */
+function invoiceStatus({ total, paidAmount, dueDate, draft, voided }, now = new Date()) {
   const totalAmt = roundMoney(total);
   const paid = roundMoney(paidAmount);
-  const outstanding = roundMoney(totalAmt - paid);
-  const credit = outstanding < 0 ? roundMoney(-outstanding) : 0;
-  const due = parseHumanDate(dueDate);
-  const overdue =
-    outstanding > 0 && due && startOfDay(due) < startOfDay(now);
+  const rawOutstanding = roundMoney(totalAmt - paid);
+  const credit = rawOutstanding < 0 ? roundMoney(-rawOutstanding) : 0;
+  const due = toIsoDate(dueDate);
+  const today = todayIso(now);
+  const overdueBase = rawOutstanding > 0 && Boolean(due) && due < today;
 
-  let status = "unpaid";
-  if (paid <= 0 && outstanding > 0) status = overdue ? "overdue" : "unpaid";
-  else if (outstanding > 0) status = overdue ? "overdue" : "partially_paid";
-  else status = "paid";
+  if (voided) {
+    return { total: totalAmt, paidAmount: paid, outstanding: 0, credit: 0, status: "void", overdue: false, daysOverdue: 0 };
+  }
+  if (draft) {
+    return { total: totalAmt, paidAmount: paid, outstanding: 0, credit: 0, status: "draft", overdue: false, daysOverdue: 0 };
+  }
+
+  let status;
+  if (rawOutstanding <= 0) status = "paid";
+  else if (overdueBase) status = "overdue";
+  else if (paid > 0) status = "partially_paid";
+  else status = "unpaid";
 
   return {
     total: totalAmt,
     paidAmount: paid,
-    outstanding: Math.max(0, outstanding),
+    outstanding: Math.max(0, rawOutstanding),
     credit,
     status,
-    overdue: Boolean(overdue),
+    overdue: overdueBase,
+    daysOverdue: overdueBase ? daysBetween(due, today) : 0,
   };
 }
 
+const AGING_BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"];
+
+/** Bucket by days past due as of `now`. No/blank due date counts as current. */
 function agingBucket(dueDate, now = new Date()) {
-  const due = parseHumanDate(dueDate);
+  const due = toIsoDate(dueDate);
   if (!due) return "current";
-  const days = Math.floor((startOfDay(now) - startOfDay(due)) / 86400000);
+  const days = daysBetween(due, todayIso(now));
   if (days <= 0) return "current";
-  if (days <= 30) return "30";
-  if (days <= 60) return "60";
+  if (days <= 30) return "1-30";
+  if (days <= 60) return "31-60";
+  if (days <= 90) return "61-90";
   return "90+";
 }
 
-module.exports = { parseHumanDate, invoiceStatus, agingBucket };
+module.exports = { parseHumanDate, invoiceStatus, agingBucket, AGING_BUCKETS };

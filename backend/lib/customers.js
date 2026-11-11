@@ -2,7 +2,8 @@ const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { canDeleteRecords, canWriteRecords } = require("./permissions");
 const { logAudit } = require("./audit");
-const { companyRef } = require("./companies");
+const { companyRef } = require("./refs");
+const { normalizeCurrency } = require("./money");
 
 function customersCol(db, companyId) {
   return companyRef(db, companyId).collection("customers");
@@ -15,6 +16,8 @@ function normalizeCustomerInput(body) {
     phone: String(body.phone || "").trim(),
     address: String(body.address || "").trim(),
     notes: String(body.notes || "").trim(),
+    taxNumber: String(body.taxNumber || "").trim(),
+    currency: body.currency ? normalizeCurrency(body.currency, "") : "",
   };
 }
 

@@ -1,10 +1,11 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, onAuthStateChanged, type Auth, type User } from "firebase/auth";
+import { connectAuthEmulator, getAuth, onAuthStateChanged, type Auth, type User } from "firebase/auth";
 
 export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig();
   const apiKey = config.public.firebaseApiKey;
   const projectId = config.public.firebaseProjectId;
+  const authEmulatorHost = config.public.firebaseAuthEmulatorHost;
 
   const user = useState<User | null>("auth-user", () => null);
   const ready = useState("auth-ready", () => false);
@@ -21,6 +22,10 @@ export default defineNuxtPlugin(() => {
     };
     app = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
     auth = getAuth(app);
+    if (authEmulatorHost) {
+      // Local dev only (docker-compose.emulators.yml).
+      connectAuthEmulator(auth, String(authEmulatorHost), { disableWarnings: true });
+    }
     onAuthStateChanged(auth, (u) => {
       user.value = u;
       ready.value = true;

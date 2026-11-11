@@ -1,11 +1,17 @@
 const ROLES = ["owner", "admin", "member"];
 
+const isAdmin = (role) => role === "owner" || role === "admin";
+
 function canInvite(role) {
-  return role === "owner" || role === "admin";
+  return isAdmin(role);
 }
 
 function canManageSettings(role) {
-  return role === "owner" || role === "admin";
+  return isAdmin(role);
+}
+
+function canManageMembers(role) {
+  return isAdmin(role);
 }
 
 function canDeleteCompany(role) {
@@ -13,7 +19,7 @@ function canDeleteCompany(role) {
 }
 
 function canDeleteRecords(role) {
-  return role === "owner" || role === "admin";
+  return isAdmin(role);
 }
 
 function canWriteRecords(role) {
@@ -28,12 +34,22 @@ function assertRole(role, allowed) {
   }
 }
 
+function assertCan(check, role) {
+  if (!check(role)) {
+    const err = new Error("Forbidden");
+    err.status = 403;
+    throw err;
+  }
+}
+
 module.exports = {
   ROLES,
   canInvite,
   canManageSettings,
+  canManageMembers,
   canDeleteCompany,
   canDeleteRecords,
   canWriteRecords,
   assertRole,
+  assertCan,
 };

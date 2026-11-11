@@ -10,3 +10,4 @@ frontend/.nuxt/
 frontend/.output/
 frontend/node_modules/
 node_modules/
+.emulator-data/

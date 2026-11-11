@@ -32,6 +32,8 @@ export default defineNuxtConfig({
       firebaseAuthDomain: process.env.NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
       firebaseProjectId: process.env.NUXT_PUBLIC_FIREBASE_PROJECT_ID || "",
       firebaseAppId: process.env.NUXT_PUBLIC_FIREBASE_APP_ID || "",
+      // Local dev only: e.g. http://localhost:9099 (see docker-compose.emulators.yml)
+      firebaseAuthEmulatorHost: process.env.NUXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST || "",
     },
   },
   nitro: {

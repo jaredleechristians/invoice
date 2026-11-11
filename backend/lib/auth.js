@@ -1,10 +1,6 @@
-const { getAdmin, firebaseConfigured, getDb } = require("./firebase");
+const { firebaseConfigured, getDb, verifyIdToken } = require("./firebase");
 
-function httpError(status, message) {
-  const err = new Error(message);
-  err.status = status;
-  return err;
-}
+const { httpError } = require("./errors");
 
 async function verifyRequest(req) {
   if (!firebaseConfigured()) {
@@ -17,9 +13,8 @@ async function verifyRequest(req) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) throw httpError(401, "Missing bearer token");
 
-  const admin = getAdmin();
   try {
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await verifyIdToken(token);
     return {
       uid: decoded.uid,
       email: decoded.email || "",
@@ -43,7 +38,7 @@ async function requireMember(req, res, next) {
   try {
     const user = req.user || (await verifyRequest(req));
     req.user = user;
-    const companyId = req.params.companyId || req.body.companyId;
+    const companyId = req.params.companyId || req.body?.companyId;
     if (!companyId) throw httpError(400, "companyId is required");
     const db = getDb();
     const snap = await db

@@ -1,0 +1,34 @@
+# Local dev without real Firebase credentials:
+#   docker compose -f docker-compose.yml -f docker-compose.emulators.yml up --build
+# Uses the "demo-invoice" project: Auth + Firestore emulators, data kept in ./.emulator-data.
+# Emulator UI: http://localhost:4000 · App: http://localhost:3000/dashboard
+services:
+  firebase:
+    build:
+      context: ./emulators
+    volumes:
+      - ./firebase.json:/workspace/firebase.json:ro
+      - ./firestore.rules:/workspace/firestore.rules:ro
+      - ./firestore.indexes.json:/workspace/firestore.indexes.json:ro
+      - ./.emulator-data:/data
+    ports:
+      - "4000:4000"
+      - "9099:9099"
+
+  api:
+    environment:
+      FIREBASE_PROJECT_ID: demo-invoice
+      FIRESTORE_EMULATOR_HOST: firebase:8080
+      FIREBASE_AUTH_EMULATOR_HOST: firebase:9099
+      FIREBASE_SERVICE_ACCOUNT_JSON: ""
+      GOOGLE_APPLICATION_CREDENTIALS: ""
+    depends_on:
+      - firebase
+
+  web:
+    environment:
+      NUXT_PUBLIC_FIREBASE_API_KEY: demo-api-key
+      NUXT_PUBLIC_FIREBASE_AUTH_DOMAIN: localhost
+      NUXT_PUBLIC_FIREBASE_PROJECT_ID: demo-invoice
+      NUXT_PUBLIC_FIREBASE_APP_ID: demo-app
+      NUXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: http://localhost:9099
