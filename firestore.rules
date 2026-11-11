@@ -70,6 +70,11 @@ service cloud.firestore {
       }
     }
 
+    // API keys (hashes only): server-only, never readable by clients.
+    match /apiKeys/{keyId} {
+      allow read, write: if false;
+    }
+
     // Anything else is closed.
     match /{document=**} {
       allow read, write: if false;

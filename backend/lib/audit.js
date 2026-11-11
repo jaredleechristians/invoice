@@ -26,6 +26,7 @@ async function logAudit({ companyId, uid, email, action, payload }) {
       payload: payload || {},
       ...(ctx.via ? { via: ctx.via } : {}),
       ...(ctx.assistantActionId ? { assistantActionId: ctx.assistantActionId } : {}),
+      ...(ctx.apiKeyId ? { apiKeyId: ctx.apiKeyId } : {}),
       createdAt: new Date().toISOString(),
     });
 }

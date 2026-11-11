@@ -106,3 +106,20 @@ Models that don't emit native tool calls can reply with `{"tool": "...", "argume
 
 **Model:** with `openrouter/free`, native tool calls worked in most of our trials. But some replies were empty, and once the model filled in ZAR for "a 500 expense" (the server now rejects that and asks). For reliable data entry, set `OPENAI_MODEL` to a paid model with solid function calling, e.g. `openai/gpt-4.1-mini`, `google/gemini-2.5-flash` or `anthropic/claude-haiku-4.5`.
 
+
+## API keys
+
+Personal keys for scripts and integrations: **Settings > API keys**. Any member can create keys for themselves; owners and admins see and can revoke every key in the company.
+
+- A key works for one company and acts as the person who made it. Their membership and role are checked on every request, so removing someone stops their keys.
+- **Read only**: GET requests only. **Read & write**: also the writes the assistant can make (customers, products, expenses, draft invoices and quotes, edits to draft invoices, payments). Keys can never publish, void or delete, change settings, members, invites or bank accounts, use the assistant, or manage keys.
+- Invoices created with a key are always drafts. Writes are audit-logged with `via: "api_key"` and the `apiKeyId`.
+- Format `inv_live_<43 chars>`. The full key is shown once. The server stores only an HMAC-SHA256 hash (keyed with `API_KEY_PEPPER`) and a short prefix. Optional expiry: 30, 90 or 365 days. 120 requests per key per minute (`API_KEY_RATE_LIMIT`).
+- Server setup: set `API_KEY_PEPPER` (at least 32 characters, e.g. `openssl rand -hex 32`). Without it, keys are disabled. Changing it invalidates all keys.
+
+```bash
+curl -H "Authorization: Bearer inv_live_YOUR_KEY" \
+  https://invoice.robotweb.dev/api/tenant/companies/YOUR_COMPANY_ID/invoices
+```
+
+The company id is shown next to each key in Settings.
