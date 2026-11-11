@@ -1,11 +1,26 @@
 <script setup lang="ts">
 const { user, configured, logout, ready } = useAuth();
-const { activeCompanyId, loadMe, bootstrap, restoreActiveCompany, setActiveCompany } =
-  useTenantApi();
+const { activeCompanyId, loadMe, bootstrap, restoreActiveCompany, setActiveCompany } = useTenantApi();
+const { company, refresh: refreshCompany } = useCompany();
 
 const companies = ref<{ id: string; name: string; role: string }[]>([]);
 const loading = ref(false);
 const error = ref("");
+
+const nav = [
+  { to: "/dashboard", label: "Home", exact: true },
+  { to: "/dashboard/invoices", label: "Invoices" },
+  { to: "/dashboard/quotes", label: "Quotes" },
+  { to: "/dashboard/customers", label: "Customers" },
+  { to: "/dashboard/products", label: "Products" },
+  { to: "/dashboard/expenses", label: "Expenses" },
+  { to: "/dashboard/reports", label: "Reports" },
+  { to: "/dashboard/settings", label: "Settings" },
+];
+const route = useRoute();
+function isActive(item: { to: string; exact?: boolean }) {
+  return item.exact ? route.path === item.to : route.path.startsWith(item.to);
+}
 
 async function refreshSession() {
   if (!user.value) return;
@@ -37,39 +52,51 @@ watch(
   },
   { immediate: true }
 );
+
+watch(activeCompanyId, (id) => {
+  if (id) refreshCompany().catch(() => {});
+}, { immediate: true });
+
+// Keep the company badge in sync after a rename in settings.
+watch(() => company.value?.name, (name) => {
+  const row = companies.value.find((c) => c.id === company.value?.id);
+  if (row && name) row.name = name;
+});
 </script>
 
 <template>
   <div class="min-h-screen bg-neutral-950 text-neutral-100">
-    <header
-      class="border-b border-neutral-800 px-4 py-3 flex flex-wrap items-center gap-3 justify-between"
-    >
+    <header class="border-b border-neutral-800 px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
       <div class="flex items-center gap-3 flex-wrap">
-        <NuxtLink to="/" class="font-semibold tracking-tight">Invoice</NuxtLink>
+        <NuxtLink to="/dashboard" class="font-semibold tracking-tight">Invoice</NuxtLink>
         <UBadge v-if="activeCompanyId" color="neutral" variant="subtle">
           {{ companies.find((c) => c.id === activeCompanyId)?.name || "Company" }}
         </UBadge>
-        <nav v-if="user && activeCompanyId" class="flex gap-1 text-sm">
-          <UButton to="/dashboard" size="xs" variant="ghost" color="neutral">Dashboard</UButton>
-          <UButton to="/dashboard/customers" size="xs" variant="ghost" color="neutral">Customers</UButton>
-          <UButton to="/dashboard/invoices" size="xs" variant="ghost" color="neutral">Invoices</UButton>
-          <UButton to="/dashboard/import" size="xs" variant="ghost" color="neutral">Import</UButton>
+        <nav v-if="user && activeCompanyId" class="flex flex-wrap gap-1 text-sm">
+          <UButton
+            v-for="item in nav"
+            :key="item.to"
+            :to="item.to"
+            size="xs"
+            :variant="isActive(item) ? 'soft' : 'ghost'"
+            color="neutral"
+          >
+            {{ item.label }}
+          </UButton>
         </nav>
       </div>
       <div class="flex items-center gap-2">
         <TenantAssistant />
         <USelectMenu
           v-if="companies.length > 1"
-          :model-value="activeCompanyId"
+          :model-value="activeCompanyId ?? undefined"
           :items="companies.map((c) => ({ label: c.name, value: c.id }))"
           value-key="value"
           class="min-w-48"
           @update:model-value="setActiveCompany($event as string)"
         />
-        <UButton v-if="!configured" to="/" variant="ghost" color="neutral">
-          Anonymous editor
-        </UButton>
-        <template v-else-if="ready">
+        <UButton to="/" variant="ghost" color="neutral" size="xs">Anonymous editor</UButton>
+        <template v-if="configured && ready">
           <UButton v-if="!user" to="/dashboard/login">Sign in</UButton>
           <template v-else>
             <span class="text-sm text-neutral-400 hidden sm:inline">{{ user.email }}</span>
@@ -79,13 +106,7 @@ watch(
       </div>
     </header>
 
-    <UAlert
-      v-if="error"
-      class="m-4"
-      color="error"
-      variant="subtle"
-      :title="error"
-    />
+    <UAlert v-if="error" class="m-4" color="error" variant="subtle" :title="error" />
 
     <main class="p-4 max-w-6xl mx-auto">
       <slot />
