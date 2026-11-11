@@ -14,6 +14,14 @@ const editingId = ref("");
 const q = ref("");
 const blank = () => ({ name: "", email: "", phone: "", address: "", taxNumber: "", currency: "", notes: "" });
 const form = reactive(blank());
+const formOpen = ref(false);
+const formError = ref("");
+const toast = useToast();
+
+function openNew() {
+  reset();
+  formOpen.value = true;
+}
 
 const filtered = computed(() => {
   const n = q.value.trim().toLowerCase();
@@ -36,24 +44,30 @@ async function load() {
 
 function edit(c: Customer) {
   editingId.value = c.id;
+  formError.value = "";
   Object.assign(form, blank(), c);
+  formOpen.value = true;
 }
 
 function reset() {
   editingId.value = "";
+  formError.value = "";
   Object.assign(form, blank());
 }
 
 async function save() {
   saving.value = true;
-  error.value = "";
+  formError.value = "";
   try {
+    const wasEditing = Boolean(editingId.value);
     if (editingId.value) await cpatch(`/customers/${editingId.value}`, form);
     else await cpost("/customers", form);
+    toast.add({ title: wasEditing ? "Customer updated" : "Customer added", description: form.name, color: "success", icon: "i-lucide-check" });
+    formOpen.value = false;
     reset();
     await load();
   } catch (e) {
-    error.value = errMsg(e, "Failed to save customer");
+    formError.value = errMsg(e, "Failed to save customer");
   } finally {
     saving.value = false;
   }
@@ -63,6 +77,7 @@ async function remove(c: Customer) {
   if (!confirm(`Delete ${c.name}? Existing invoices keep their copy of the customer details.`)) return;
   try {
     await cdelete(`/customers/${c.id}`);
+    toast.add({ title: "Customer deleted", description: c.name, color: "success", icon: "i-lucide-trash" });
     await load();
   } catch (e) {
     error.value = errMsg(e);
@@ -83,32 +98,37 @@ watch(activeCompanyId, load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h1 class="text-2xl font-semibold">Customers</h1>
-      <p class="text-muted text-sm mt-1">Bill-to contacts. A default currency pre-selects ZAR or USD on new invoices.</p>
-    </div>
+    <PageHeader info="Bill-to contacts. A default currency pre-selects ZAR or USD on new invoices.">
+      <UButton icon="i-lucide-plus" @click="openNew">Add customer</UButton>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
 
-    <UCard>
-      <template #header><span class="font-medium">{{ editingId ? "Edit customer" : "Add customer" }}</span></template>
-      <form class="grid gap-3 sm:grid-cols-3" @submit.prevent="save">
-        <UFormField label="Name" required><UInput v-model="form.name" required class="w-full" /></UFormField>
-        <UFormField label="Email"><UInput v-model="form.email" type="email" class="w-full" /></UFormField>
-        <UFormField label="Phone"><UInput v-model="form.phone" class="w-full" /></UFormField>
-        <UFormField label="Address" class="sm:col-span-2"><UTextarea v-model="form.address" :rows="2" class="w-full" /></UFormField>
-        <div class="space-y-3">
-          <UFormField label="Tax / VAT number"><UInput v-model="form.taxNumber" class="w-full" /></UFormField>
-          <UFormField label="Default currency">
-            <NSelect v-model="form.currency" placeholder="Company default" :options="currencies.map((c) => ({ label: c, value: c }))" />
-          </UFormField>
+    <USlideover v-model:open="formOpen" :title="editingId ? 'Edit customer' : 'Add customer'" :ui="{ content: 'sm:max-w-lg' }">
+      <template #body>
+        <form id="customer-form" class="space-y-4" @submit.prevent="save">
+          <UAlert v-if="formError" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="formError" />
+          <UFormField label="Name" required><UInput v-model="form.name" required autofocus class="w-full" /></UFormField>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Email"><UInput v-model="form.email" type="email" class="w-full" /></UFormField>
+            <UFormField label="Phone"><UInput v-model="form.phone" class="w-full" /></UFormField>
+          </div>
+          <UFormField label="Address"><UTextarea v-model="form.address" :rows="3" class="w-full" /></UFormField>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Tax / VAT number"><UInput v-model="form.taxNumber" class="w-full" /></UFormField>
+            <UFormField label="Default currency">
+              <AppSelect v-model="form.currency" searchable placeholder="Company default" :options="currencies.map((c) => ({ label: c, value: c }))" />
+            </UFormField>
+          </div>
+        </form>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" color="neutral" @click="formOpen = false">Cancel</UButton>
+          <UButton type="submit" form="customer-form" :loading="saving">{{ editingId ? "Save changes" : "Add customer" }}</UButton>
         </div>
-        <div class="sm:col-span-3 flex gap-2">
-          <UButton type="submit" :loading="saving">{{ editingId ? "Save changes" : "Save customer" }}</UButton>
-          <UButton v-if="editingId" variant="ghost" color="neutral" @click="reset">Cancel</UButton>
-        </div>
-      </form>
-    </UCard>
+      </template>
+    </USlideover>
 
     <UInput v-model="q" placeholder="Search customers" icon="i-lucide-search" class="max-w-sm" />
 
@@ -124,6 +144,12 @@ watch(activeCompanyId, load, { immediate: true });
         <UButton v-if="isAdmin" size="xs" variant="ghost" color="error" icon="i-lucide-trash" @click="remove(c)" />
       </div>
     </div>
-    <p v-else-if="!loading" class="text-dimmed text-sm">No customers yet.</p>
+    <UCard v-else-if="!loading" class="text-center">
+      <div class="py-6 space-y-3">
+        <UIcon name="i-lucide-users" class="size-8 text-dimmed" />
+        <p class="text-muted text-sm">No customers yet.</p>
+        <UButton icon="i-lucide-plus" @click="openNew">Add customer</UButton>
+      </div>
+    </UCard>
   </div>
 </template>

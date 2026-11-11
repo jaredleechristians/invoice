@@ -33,11 +33,14 @@ function removeBank(i: number) {
   form.value?.bankAccounts.splice(i, 1);
 }
 
-async function onLogo(ev: Event) {
-  const file = (ev.target as HTMLInputElement).files?.[0];
+const logoFile = ref<File | null>(null);
+watch(logoFile, (f) => onLogo(f));
+
+async function onLogo(file: File | null | undefined) {
   if (!file || !form.value) return;
   if (file.size > 300 * 1024) {
     error.value = "Logo must be 300 KB or smaller.";
+    logoFile.value = null;
     return;
   }
   form.value.logoDataUrl = await fileToDataUrl(file);
@@ -101,14 +104,10 @@ async function save() {
 </script>
 
 <template>
-  <div class="space-y-6 max-w-4xl">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">Company settings</h1>
-        <p class="text-muted text-sm mt-1">Shown on invoices and quotes. Finalized invoices keep the details they were issued with.</p>
-      </div>
+  <div class="mx-auto w-full max-w-4xl space-y-6">
+    <PageHeader title="Company settings" info="Shown on invoices and quotes. Finalized invoices keep the details they were issued with.">
       <UButton to="/dashboard/settings/members" variant="soft" icon="i-lucide-users">Members</UButton>
-    </div>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="saved" color="success" variant="subtle" :title="saved" />
@@ -128,9 +127,17 @@ async function save() {
             <UFormField label="Address" class="sm:col-span-2"><UTextarea v-model="form.address" :rows="3" class="w-full" /></UFormField>
             <UFormField label="Logo (PNG/JPEG/SVG, ≤ 300 KB)" class="sm:col-span-2">
               <div class="flex items-center gap-4">
-                <img v-if="form.logoDataUrl" :src="form.logoDataUrl" alt="Logo" class="h-14 max-w-48 object-contain bg-white rounded p-1" />
-                <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="text-sm" @change="onLogo" />
-                <UButton v-if="form.logoDataUrl" size="xs" variant="ghost" color="error" @click="form.logoDataUrl = ''">Remove</UButton>
+                <img v-if="form.logoDataUrl" :src="form.logoDataUrl" alt="Logo" class="h-14 max-w-48 object-contain bg-white rounded-md p-1 ring-1 ring-default" />
+                <UFileUpload
+                  v-model="logoFile"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  icon="i-lucide-image-up"
+                  label="Upload logo"
+                  description="PNG, JPEG, SVG or WebP"
+                  :preview="false"
+                  class="w-64 min-h-24"
+                />
+                <UButton v-if="form.logoDataUrl" size="xs" variant="ghost" color="error" @click="form.logoDataUrl = ''; logoFile = null">Remove</UButton>
               </div>
             </UFormField>
           </div>
@@ -161,7 +168,7 @@ async function save() {
             <UFormField label="Next quote number"><UInput v-model.number="form.quoteNextNumber" type="number" min="1" class="w-full" /></UFormField>
             <UFormField label="Quotes valid for (days)"><UInput v-model.number="form.quoteValidDays" type="number" min="0" max="365" class="w-full" /></UFormField>
             <UFormField label="Default currency">
-              <NSelect v-model="form.defaultCurrency" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
+              <AppSelect v-model="form.defaultCurrency" searchable :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
             </UFormField>
             <UFormField label="Currencies you bill in" class="sm:col-span-2">
               <div class="flex flex-wrap gap-4 pt-1.5">
@@ -193,7 +200,7 @@ async function save() {
             <div v-for="(acct, i) in form.bankAccounts" :key="acct.id || i" class="grid gap-3 sm:grid-cols-[1fr_8rem_auto] items-start border border-default rounded-lg p-3">
               <UFormField label="Label"><UInput v-model="acct.label" class="w-full" placeholder="ZAR — South African bank" /></UFormField>
               <UFormField label="Currency">
-                <NSelect v-model="acct.currency" placeholder="Any" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
+                <AppSelect v-model="acct.currency" placeholder="Any" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
               </UFormField>
               <UButton class="mt-6" size="xs" color="error" variant="ghost" icon="i-lucide-trash" @click="removeBank(i)" />
               <UFormField label="Details (plain text)" class="sm:col-span-3">

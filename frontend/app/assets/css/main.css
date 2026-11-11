@@ -4,6 +4,21 @@
 /* Legacy editor CSS lives in the base layer (see editor.css). */
 @import "./editor.css" layer(base);
 
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  /* App-wide defaults (the editor overrides these on its own page). */
+  body {
+    background-color: var(--ui-bg);
+    color: var(--ui-text);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
 @theme {
   --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;

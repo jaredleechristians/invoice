@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatCurrency, formatDate, todayIso } from "~/utils/money";
+import { datePresets, formatCurrency, formatDate, todayIso } from "~/utils/money";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -19,12 +19,7 @@ const BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"];
 const { activeCompanyId, capi } = useCompanyApi();
 
 const today = todayIso();
-const PRESETS = [
-  { label: "This month", from: `${today.slice(0, 7)}-01`, to: today },
-  { label: "This year", from: `${today.slice(0, 4)}-01-01`, to: today },
-  { label: "SA tax year", from: Number(today.slice(5, 7)) >= 3 ? `${today.slice(0, 4)}-03-01` : `${Number(today.slice(0, 4)) - 1}-03-01`, to: today },
-  { label: "Last 12 months", from: `${Number(today.slice(0, 4)) - 1}-${today.slice(5, 7)}-01`, to: today },
-];
+const PRESETS = datePresets(today);
 
 const range = reactive({ from: PRESETS[1]!.from, to: today });
 const data = ref<Reports | null>(null);
@@ -53,11 +48,12 @@ async function load() {
   }
 }
 
-function preset(p: { from: string; to: string }) {
-  range.from = p.from;
-  range.to = p.to;
-  load();
-}
+const rangeModel = computed({
+  get: () => ({ from: range.from, to: range.to }),
+  set: (v: { from: string; to: string }) => Object.assign(range, v),
+});
+// Refresh automatically when the range changes.
+watch(() => [range.from, range.to], () => load());
 
 function monthLabel(m: string) {
   const [y, mo] = m.split("-").map(Number);
@@ -101,34 +97,31 @@ watch(activeCompanyId, load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">Reports</h1>
-        <p class="text-muted text-sm mt-1">Split by currency — amounts are never converted or added across currencies. P&amp;L is cash basis (payments received minus expenses).</p>
-      </div>
+    <PageHeader info="Split by currency — amounts are never converted or added across currencies. P&L is cash basis (payments received minus expenses).">
       <UButton variant="soft" color="neutral" icon="i-lucide-download" :disabled="!data" @click="exportCsv">CSV</UButton>
-    </div>
+    </PageHeader>
 
-    <div class="flex flex-wrap gap-2 items-end">
-      <UFormField label="From"><UInput v-model="range.from" type="date" /></UFormField>
-      <UFormField label="To"><UInput v-model="range.to" type="date" /></UFormField>
-      <UButton :loading="loading" @click="load">Run</UButton>
-      <UButton v-for="p in PRESETS" :key="p.label" size="xs" variant="ghost" color="neutral" @click="preset(p)">{{ p.label }}</UButton>
+    <div class="flex flex-wrap items-center gap-2">
+      <DatePicker v-model="rangeModel" range :presets="PRESETS" />
+      <UButton
+        color="neutral"
+        variant="ghost"
+        icon="i-lucide-refresh-cw"
+        :loading="loading"
+        aria-label="Refresh"
+        @click="load"
+      />
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
 
-    <div class="flex flex-wrap gap-1 border-b border-default">
-      <button
-        v-for="t in TABS"
-        :key="t.id"
-        class="px-3 py-2 text-sm -mb-px border-b-2"
-        :class="tab === t.id ? 'border-primary-500 text-white' : 'border-transparent text-muted hover:text-highlighted'"
-        @click="tab = t.id"
-      >
-        {{ t.label }}
-      </button>
-    </div>
+    <UTabs
+      v-model="tab"
+      :items="TABS.map((t) => ({ label: t.label, value: t.id }))"
+      :content="false"
+      variant="link"
+      class="w-full overflow-x-auto"
+    />
 
     <template v-if="data">
       <!-- P&L -->
@@ -141,7 +134,7 @@ watch(activeCompanyId, load, { immediate: true });
               <tr><td class="pt-3 pb-1 font-medium" colspan="2">Expenses</td></tr>
               <tr v-for="l in v.expenseLines" :key="l.categoryName"><td class="py-0.5 pl-4 text-muted">{{ l.categoryName }}</td><td class="py-0.5 text-right tabular-nums text-muted">{{ formatCurrency(l.amount, String(cur)) }}</td></tr>
               <tr><td class="py-1 pl-4">Total expenses</td><td class="py-1 text-right tabular-nums">{{ formatCurrency(v.expenses, String(cur)) }}</td></tr>
-              <tr class="border-t border-accented"><td class="pt-2 font-semibold">Net profit</td><td class="pt-2 text-right tabular-nums font-semibold" :class="v.net < 0 ? 'text-red-400' : 'text-emerald-400'">{{ formatCurrency(v.net, String(cur)) }}</td></tr>
+              <tr class="border-t border-accented"><td class="pt-2 font-semibold">Net profit</td><td class="pt-2 text-right tabular-nums font-semibold" :class="v.net < 0 ? 'text-error' : 'text-success'">{{ formatCurrency(v.net, String(cur)) }}</td></tr>
             </tbody>
           </table>
         </UCard>
@@ -157,7 +150,7 @@ watch(activeCompanyId, load, { immediate: true });
             <tbody class="divide-y divide-default">
               <tr v-for="r in monthRows(cur)" :key="r.month">
                 <td class="py-1.5">{{ monthLabel(r.month) }}</td>
-                <td class="py-1.5"><div class="h-2 rounded bg-primary-500/70" :style="{ width: `${(r.received / maxOf(monthRows(cur))) * 100}%` }" /></td>
+                <td class="py-1.5"><div class="h-2 rounded bg-primary/70" :style="{ width: `${(r.received / maxOf(monthRows(cur))) * 100}%` }" /></td>
                 <td class="py-1.5 text-right tabular-nums">{{ formatCurrency(r.received, cur) }}</td>
                 <td class="py-1.5 text-right tabular-nums text-muted">{{ formatCurrency(r.invoiced, cur) }}</td>
               </tr>
@@ -222,7 +215,7 @@ watch(activeCompanyId, load, { immediate: true });
                 <td class="px-4 py-2">{{ i.invoiceNumber }}</td>
                 <td class="px-4 py-2">{{ i.customerName }}</td>
                 <td class="px-4 py-2">{{ formatDate(i.dueDate) }}</td>
-                <td class="px-4 py-2 text-right" :class="i.daysOverdue ? 'text-red-400' : ''">{{ i.daysOverdue || "—" }}</td>
+                <td class="px-4 py-2 text-right" :class="i.daysOverdue ? 'text-error' : ''">{{ i.daysOverdue || "—" }}</td>
                 <td class="px-4 py-2 text-right tabular-nums">{{ formatCurrency(i.outstanding, i.currency) }}</td>
               </tr>
             </tbody>

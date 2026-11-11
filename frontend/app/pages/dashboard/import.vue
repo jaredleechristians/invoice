@@ -55,13 +55,8 @@ watch([activeCompanyId, () => user.value?.uid, ready], () => loadPreview());
 </script>
 
 <template>
-  <div class="space-y-6 max-w-2xl">
-    <div>
-      <h1 class="text-2xl font-semibold">Import local invoice</h1>
-      <p class="text-muted text-sm mt-1">
-        Copy your anonymous editor invoice into the active company (assigns a new invoice number).
-      </p>
-    </div>
+  <div class="mx-auto w-full max-w-4xl space-y-6">
+    <PageHeader title="Import local invoice" info="Copy your anonymous editor invoice into the active company (assigns a new invoice number)." />
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="success" color="success" variant="subtle" :title="success" />

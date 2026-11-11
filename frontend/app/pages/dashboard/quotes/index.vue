@@ -38,18 +38,14 @@ watch(activeCompanyId, load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">Quotes</h1>
-        <p class="text-muted text-sm mt-1">Estimates you can send and convert into invoices.</p>
-      </div>
+    <PageHeader info="Estimates you can send and convert into invoices.">
       <UButton to="/dashboard/quotes/new" icon="i-lucide-plus">New quote</UButton>
-    </div>
+    </PageHeader>
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <div class="flex flex-wrap gap-2">
       <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
       <div class="w-44">
-        <NSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: s, value: s }))" />
+        <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: s, value: s }))" />
       </div>
     </div>
     <div v-if="filtered.length" class="overflow-x-auto rounded-lg border border-default">

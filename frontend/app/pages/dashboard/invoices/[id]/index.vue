@@ -90,7 +90,7 @@ watch([activeCompanyId, id], load, { immediate: true });
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="mx-auto w-full max-w-5xl space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div class="flex items-center gap-3">
@@ -102,7 +102,9 @@ watch([activeCompanyId, id], load, { immediate: true });
           <template v-if="invoice.dueDate"> · due {{ invoice.dueDateIso ? formatDate(invoice.dueDateIso) : invoice.dueDate }}</template>
         </p>
       </div>
-      <UButton to="/dashboard/invoices" variant="ghost" color="neutral">Back</UButton>
+      <PageHeader>
+        <UButton to="/dashboard/invoices" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Invoices</UButton>
+      </PageHeader>
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
@@ -128,8 +130,8 @@ watch([activeCompanyId, id], load, { immediate: true });
       </UCard>
       <UCard>
         <p class="text-sm text-muted">Outstanding</p>
-        <p class="text-2xl font-semibold tabular-nums" :class="invoice.overdue ? 'text-red-400' : ''">{{ formatCurrency(invoice.outstanding, invoice.currency) }}</p>
-        <p v-if="invoice.overdue" class="text-xs text-red-400 mt-1">{{ invoice.daysOverdue }} days overdue</p>
+        <p class="text-2xl font-semibold tabular-nums" :class="invoice.overdue ? 'text-error' : ''">{{ formatCurrency(invoice.outstanding, invoice.currency) }}</p>
+        <p v-if="invoice.overdue" class="text-xs text-error mt-1">{{ invoice.daysOverdue }} days overdue</p>
       </UCard>
     </div>
 

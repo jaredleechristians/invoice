@@ -64,7 +64,7 @@ watch([activeCompanyId, id], load, { immediate: true });
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="mx-auto w-full max-w-5xl space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div class="flex items-center gap-3">
@@ -75,7 +75,9 @@ watch([activeCompanyId, id], load, { immediate: true });
           {{ quote.customerName || "No customer" }} · {{ quote.currency }} · {{ formatDate(quote.issueDateIso) }} · valid until {{ formatDate(quote.expiryDateIso) }}
         </p>
       </div>
-      <UButton to="/dashboard/quotes" variant="ghost" color="neutral">Back</UButton>
+      <PageHeader>
+        <UButton to="/dashboard/quotes" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Quotes</UButton>
+      </PageHeader>
     </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />

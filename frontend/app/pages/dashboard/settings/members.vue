@@ -15,6 +15,15 @@ const notice = ref("");
 const form = reactive({ email: "", role: "member" });
 const creating = ref(false);
 const lastLink = ref("");
+const inviteOpen = ref(false);
+const toast = useToast();
+
+function openInvite() {
+  lastLink.value = "";
+  form.email = "";
+  form.role = "member";
+  inviteOpen.value = true;
+}
 
 const roleOptions = computed(() =>
   (myRole.value === "owner" ? ["owner", "admin", "member"] : ["admin", "member"]).map((r) => ({ label: r, value: r }))
@@ -43,18 +52,22 @@ async function createInvite() {
     const inv = await cpost<Invite>("/invites", { email: form.email, role: form.role });
     lastLink.value = inviteLink(inv.token);
     form.email = "";
+    toast.add({ title: "Invite created", color: "success", icon: "i-lucide-check" });
     await load();
   } catch (e) {
-    error.value = errMsg(e);
+    toast.add({ title: "Couldn't create invite", description: errMsg(e), color: "error", icon: "i-lucide-circle-alert" });
   } finally {
     creating.value = false;
   }
 }
 
 async function copy(text: string) {
-  await navigator.clipboard.writeText(text);
-  notice.value = "Invite link copied.";
-  setTimeout(() => (notice.value = ""), 2000);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.add({ title: "Invite link copied", color: "success", icon: "i-lucide-copy" });
+  } catch {
+    toast.add({ title: "Copy failed — select the link and copy it manually", color: "warning" });
+  }
 }
 
 async function changeRole(m: Member, role: string) {
@@ -94,14 +107,11 @@ watch(activeCompanyId, load, { immediate: true });
 </script>
 
 <template>
-  <div class="space-y-6 max-w-3xl">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">Members</h1>
-        <p class="text-muted text-sm mt-1">Owners and admins manage settings and members. Members can create invoices, quotes, payments and expenses.</p>
-      </div>
-      <UButton to="/dashboard/settings" variant="ghost" color="neutral">Settings</UButton>
-    </div>
+  <div class="mx-auto w-full max-w-4xl space-y-6">
+    <PageHeader title="Members" info="Owners and admins manage settings and members. Members can create invoices, quotes, payments and expenses.">
+      <UButton to="/dashboard/settings" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Settings</UButton>
+      <UButton v-if="isAdmin" icon="i-lucide-user-plus" @click="openInvite">Invite</UButton>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="notice" color="success" variant="subtle" :title="notice" />
@@ -115,7 +125,7 @@ watch(activeCompanyId, load, { immediate: true });
             <p class="text-xs text-dimmed">Joined {{ new Date(m.joinedAt).toLocaleDateString("en-ZA") }}</p>
           </div>
           <div class="w-32">
-            <NSelect
+            <AppSelect
               v-if="isAdmin && (myRole === 'owner' || m.role !== 'owner')"
               :model-value="m.role"
               :options="roleOptions"
@@ -136,23 +146,34 @@ watch(activeCompanyId, load, { immediate: true });
       </div>
     </UCard>
 
-    <UCard v-if="isAdmin">
-      <template #header><span class="font-medium">Invite someone</span></template>
-      <form class="flex flex-wrap items-end gap-3" @submit.prevent="createInvite">
-        <UFormField label="Email (optional — locks the invite to this address)" class="flex-1 min-w-56">
-          <UInput v-model="form.email" type="email" class="w-full" />
-        </UFormField>
-        <UFormField label="Role" class="w-32">
-          <NSelect v-model="form.role" :options="[{ label: 'admin', value: 'admin' }, { label: 'member', value: 'member' }]" />
-        </UFormField>
-        <UButton type="submit" :loading="creating">Create invite link</UButton>
-      </form>
-      <p class="text-xs text-dimmed mt-3">Invites are not emailed yet — copy the link and send it yourself. Links expire after 7 days.</p>
-      <div v-if="lastLink" class="mt-3 flex gap-2 items-center">
-        <UInput :model-value="lastLink" readonly class="flex-1 font-mono text-xs" />
-        <UButton size="xs" variant="soft" @click="copy(lastLink)">Copy</UButton>
-      </div>
-    </UCard>
+    <UModal v-model:open="inviteOpen" title="Invite someone" description="Invites aren't emailed yet — copy the link and send it yourself. Links expire after 7 days.">
+      <template #body>
+        <form v-if="!lastLink" id="invite-form" class="space-y-4" @submit.prevent="createInvite">
+          <UFormField label="Email" help="Optional — locks the invite to this address.">
+            <UInput v-model="form.email" type="email" autofocus class="w-full" />
+          </UFormField>
+          <UFormField label="Role">
+            <AppSelect v-model="form.role" :options="[{ label: 'Admin', value: 'admin' }, { label: 'Member', value: 'member' }]" />
+          </UFormField>
+        </form>
+        <div v-else class="space-y-2">
+          <p class="text-sm text-muted">Invite link created. Share it with the person you're inviting:</p>
+          <div class="flex gap-2 items-center">
+            <UInput :model-value="lastLink" readonly class="flex-1 font-mono text-xs" />
+            <UButton variant="soft" icon="i-lucide-copy" @click="copy(lastLink)">Copy</UButton>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <template v-if="!lastLink">
+            <UButton variant="ghost" color="neutral" @click="inviteOpen = false">Cancel</UButton>
+            <UButton type="submit" form="invite-form" :loading="creating">Create invite link</UButton>
+          </template>
+          <UButton v-else @click="inviteOpen = false">Done</UButton>
+        </div>
+      </template>
+    </UModal>
 
     <UCard v-if="isAdmin && invites.length">
       <template #header><span class="font-medium">Pending invites</span></template>
@@ -160,7 +181,7 @@ watch(activeCompanyId, load, { immediate: true });
         <div v-for="i in invites" :key="i.id" class="flex flex-wrap items-center gap-3 py-2.5 text-sm">
           <div class="flex-1 min-w-48">
             <p>{{ i.email || "Anyone with the link" }} · {{ i.role }}</p>
-            <p class="text-xs" :class="i.expired ? 'text-red-400' : 'text-dimmed'">
+            <p class="text-xs" :class="i.expired ? 'text-error' : 'text-dimmed'">
               {{ i.expired ? "Expired" : "Expires" }} {{ new Date(i.expiresAt).toLocaleString("en-ZA") }}
             </p>
           </div>

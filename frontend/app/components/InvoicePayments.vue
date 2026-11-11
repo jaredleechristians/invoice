@@ -102,9 +102,9 @@ watch(() => props.invoice.id, load, { immediate: true });
       <UFormField :label="`Amount (${invoice.currency})`" class="sm:col-span-1">
         <UInput v-model="form.amount" type="number" step="0.01" min="0.01" :max="invoice.outstanding" required class="w-full" />
       </UFormField>
-      <UFormField label="Date"><UInput v-model="form.paidAt" type="date" required class="w-full" /></UFormField>
+      <UFormField label="Date"><DatePicker v-model="form.paidAt" block /></UFormField>
       <UFormField label="Method">
-        <NSelect v-model="form.method" :options="methods.map((m) => ({ label: PAYMENT_METHOD_LABELS[m] || m, value: m }))" />
+        <AppSelect v-model="form.method" :options="methods.map((m) => ({ label: PAYMENT_METHOD_LABELS[m] || m, value: m }))" />
       </UFormField>
       <UFormField label="Reference"><UInput v-model="form.reference" class="w-full" /></UFormField>
       <UFormField label="Note"><UInput v-model="form.note" class="w-full" /></UFormField>
@@ -126,7 +126,7 @@ watch(() => props.invoice.id, load, { immediate: true });
           <td class="py-2 text-muted">
             {{ p.reference || "—" }}
             <span v-if="p.note" class="block text-xs text-dimmed">{{ p.note }}</span>
-            <span v-if="p.voided" class="block text-xs text-red-400">Void{{ p.voidReason ? `: ${p.voidReason}` : "" }}</span>
+            <span v-if="p.voided" class="block text-xs text-error">Void{{ p.voidReason ? `: ${p.voidReason}` : "" }}</span>
           </td>
           <td class="py-2 text-right tabular-nums font-medium" :class="p.voided ? 'line-through' : ''">{{ formatCurrency(p.amount, p.currency) }}</td>
           <td class="py-2 text-right whitespace-nowrap">

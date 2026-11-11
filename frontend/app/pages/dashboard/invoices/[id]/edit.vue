@@ -33,11 +33,10 @@ async function onSubmit({ body, finalize }: { body: Record<string, unknown>; fin
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-semibold">Edit {{ invoice?.invoiceNumber || "draft invoice" }}</h1>
+  <div class="mx-auto w-full max-w-5xl space-y-6">
+    <PageHeader :title="`Edit ${invoice?.invoiceNumber || 'draft invoice'}`">
       <UButton :to="`/dashboard/invoices/${id}`" variant="ghost" color="neutral">Cancel</UButton>
-    </div>
+    </PageHeader>
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert
       v-if="invoice && !invoice.draft && !invoice.voided"

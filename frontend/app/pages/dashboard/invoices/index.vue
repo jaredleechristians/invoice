@@ -58,20 +58,16 @@ watch(activeCompanyId, load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">Invoices</h1>
-        <p class="text-muted text-sm mt-1">Drafts get a number when you finalize them.</p>
-      </div>
+    <PageHeader info="Drafts get a number when you finalize them.">
       <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">New invoice</UButton>
-    </div>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
 
     <div class="flex flex-wrap gap-2">
       <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
-      <div class="w-44"><NSelect v-model="status" placeholder="All statuses" :options="[{ label: 'open (any unpaid)', value: 'open' }, ...STATUS_OPTIONS]" /></div>
-      <div class="w-32"><NSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
+      <div class="w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: 'open (any unpaid)', value: 'open' }, ...STATUS_OPTIONS]" /></div>
+      <div class="w-32"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
       <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" @click="load" />
     </div>
 

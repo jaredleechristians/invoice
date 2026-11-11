@@ -55,17 +55,11 @@ watch(activeCompanyId, load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold">{{ company?.name || "Dashboard" }}</h1>
-        <p class="text-muted text-sm mt-1">Figures are per currency — ZAR and USD are never added together.</p>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">Invoice</UButton>
-        <UButton to="/dashboard/quotes/new" variant="soft" icon="i-lucide-plus">Quote</UButton>
-        <UButton to="/dashboard/expenses" variant="soft" icon="i-lucide-plus">Expense</UButton>
-      </div>
-    </div>
+    <PageHeader info="Figures are per currency — ZAR and USD are never added together.">
+      <UButton to="/dashboard/invoices/new" icon="i-lucide-plus" class="hidden sm:inline-flex">Invoice</UButton>
+      <UButton to="/dashboard/quotes/new" variant="soft" icon="i-lucide-plus" class="hidden md:inline-flex">Quote</UButton>
+      <UButton to="/dashboard/expenses" variant="soft" icon="i-lucide-plus" class="hidden md:inline-flex">Expense</UButton>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="needsSetup" color="info" variant="subtle" title="Add your logo, address and bank details so they appear on invoices.">
@@ -80,7 +74,7 @@ watch(activeCompanyId, load, { immediate: true });
       </UCard>
       <UCard>
         <p class="text-sm text-muted">Overdue <span class="text-dimmed">({{ summary.overdueCount }})</span></p>
-        <MoneyList :value="summary.overdue" empty="None" class="text-red-400" />
+        <MoneyList :value="summary.overdue" empty="None" class="text-error" />
         <NuxtLink to="/dashboard/invoices?status=overdue" class="text-xs text-dimmed underline">View</NuxtLink>
       </UCard>
       <UCard>
@@ -101,8 +95,8 @@ watch(activeCompanyId, load, { immediate: true });
         <template #header><span class="font-medium">Overdue invoices</span></template>
         <ul v-if="summary.topOverdue.length" class="divide-y divide-default text-sm">
           <li v-for="i in summary.topOverdue" :key="i.id">
-            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between gap-3 py-2 hover:text-white">
-              <span>{{ i.invoiceNumber }} · {{ i.customerName }} <span class="text-red-400 text-xs">{{ i.daysOverdue }}d</span></span>
+            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between gap-3 py-2 hover:text-highlighted">
+              <span>{{ i.invoiceNumber }} · {{ i.customerName }} <span class="text-error text-xs">{{ i.daysOverdue }}d</span></span>
               <span class="tabular-nums">{{ formatCurrency(i.outstanding, i.currency) }}</span>
             </NuxtLink>
           </li>
@@ -115,7 +109,7 @@ watch(activeCompanyId, load, { immediate: true });
         </template>
         <ul v-if="summary.recentInvoices.length" class="divide-y divide-default text-sm">
           <li v-for="i in summary.recentInvoices" :key="i.id">
-            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between items-center gap-3 py-2 hover:text-white">
+            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between items-center gap-3 py-2 hover:text-highlighted">
               <span>{{ i.invoiceNumber || "Draft" }} · {{ i.customerName || "—" }}</span>
               <span class="flex items-center gap-2">
                 <span class="tabular-nums">{{ formatCurrency(i.total, i.currency) }}</span>

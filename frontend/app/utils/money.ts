@@ -93,3 +93,18 @@ export function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/** Common reporting ranges (ISO dates, inclusive), relative to `today`. */
+export function datePresets(today = todayIso()) {
+  const y = Number(today.slice(0, 4));
+  const m = Number(today.slice(5, 7));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // First day of the month 11 months ago → 12 calendar months including this one.
+  const back = new Date(Date.UTC(y, m - 1 - 11, 1));
+  return [
+    { label: "This month", from: `${today.slice(0, 7)}-01`, to: today },
+    { label: "This year", from: `${y}-01-01`, to: today },
+    { label: "SA tax year", from: m >= 3 ? `${y}-03-01` : `${y - 1}-03-01`, to: today },
+    { label: "Last 12 months", from: `${back.getUTCFullYear()}-${pad(back.getUTCMonth() + 1)}-01`, to: today },
+  ];
+}

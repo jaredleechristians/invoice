@@ -112,6 +112,16 @@ watch(() => form.customerId, (id, old) => {
   if (c?.currency) form.currency = c.currency;
 });
 
+// Quick due/expiry dates relative to the issue date.
+const termPresets = computed(() =>
+  form.issueDate
+    ? [
+        { label: "On issue date", value: form.issueDate },
+        ...[7, 14, 30, 60].map((d) => ({ label: `${d} days`, value: addDays(form.issueDate, d) })),
+      ]
+    : []
+);
+
 function onIssueDateChange() {
   if (isInvoice.value) form.dueDate = addDays(form.issueDate, termsDays());
   else form.expiryDate = addDays(form.issueDate, termsDays());
@@ -183,10 +193,12 @@ function submit(finalize: boolean) {
       <div class="grid gap-4 sm:grid-cols-4">
         <UFormField label="Customer" class="sm:col-span-2">
           <div class="flex gap-2">
-            <NSelect
+            <AppSelect
               v-model="form.customerId"
               placeholder="— Select customer —"
-              :options="customers.map((c) => ({ label: c.name, value: c.id }))"
+              searchable
+              icon="i-lucide-user"
+              :options="customers.map((c) => ({ label: c.name, value: c.id, description: c.email || undefined }))"
             />
             <UButton size="sm" variant="soft" icon="i-lucide-user-plus" @click="newCustomer.open = !newCustomer.open" />
           </div>
@@ -198,7 +210,7 @@ function submit(finalize: boolean) {
           />
         </UFormField>
         <UFormField label="Currency">
-          <NSelect v-model="form.currency" :disabled="locked" :options="currencies.map((c) => ({ label: c, value: c }))" />
+          <AppSelect v-model="form.currency" searchable :disabled="locked" :options="currencies.map((c) => ({ label: c, value: c }))" />
         </UFormField>
         <UFormField label="Reference / PO">
           <UInput v-model="form.reference" class="w-full" />
@@ -211,13 +223,13 @@ function submit(finalize: boolean) {
         </div>
 
         <UFormField :label="isInvoice ? 'Issue date' : 'Quote date'">
-          <UInput v-model="form.issueDate" type="date" class="w-full" @change="onIssueDateChange" />
+          <DatePicker v-model="form.issueDate" block @change="onIssueDateChange" />
         </UFormField>
         <UFormField v-if="isInvoice" label="Due date">
-          <UInput v-model="form.dueDate" type="date" class="w-full" />
+          <DatePicker v-model="form.dueDate" block :presets="termPresets" />
         </UFormField>
         <UFormField v-else label="Valid until">
-          <UInput v-model="form.expiryDate" type="date" class="w-full" />
+          <DatePicker v-model="form.expiryDate" block :presets="termPresets" />
         </UFormField>
       </div>
     </UCard>
@@ -232,10 +244,12 @@ function submit(finalize: boolean) {
         >
           <div class="space-y-2">
             <!-- @products-start -->
-            <NSelect
+            <AppSelect
               v-if="products.length"
               :model-value="line.productId || ''"
               placeholder="Pick from catalogue (optional)"
+              searchable
+              icon="i-lucide-package"
               :options="productOptions"
               @update:model-value="applyProduct(line, String($event))"
             />
