@@ -123,3 +123,37 @@ curl -H "Authorization: Bearer inv_live_YOUR_KEY" \
 ```
 
 The company id is shown next to each key in Settings.
+
+## MCP server
+
+The API serves an [MCP](https://modelcontextprotocol.io) endpoint for AI assistants (Claude, ChatGPT, Cursor and others): **`https://invoice.robotweb.dev/mcp`**. It uses Streamable HTTP, is stateless and sends JSON responses. You sign in with an API key; there is no OAuth.
+
+**Add it as a custom connector:** URL `https://invoice.robotweb.dev/mcp`, header `Authorization: Bearer inv_live_YOUR_KEY`. The key decides the company and what the assistant may do. For example, in Cursor's `mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "invoice": {
+      "url": "https://invoice.robotweb.dev/mcp",
+      "headers": { "Authorization": "Bearer inv_live_YOUR_KEY" }
+    }
+  }
+}
+```
+
+**Tools.** Every key gets the read tools:
+`get_company`, `list_customers`, `get_customer`, `get_customer_statement`, `list_invoices`, `get_invoice`, `get_receivables` (outstanding per customer and aged buckets), `get_reports` (income, expenses and profit by month, category and customer), `list_expenses`, `list_expense_categories`, `list_payments`, `list_bank_accounts`, `list_bank_transactions`, `get_bank_transaction_suggestions`.
+
+**Read & write** keys also get:
+`create_customer`, `create_draft_invoice`, `update_draft_invoice`, `record_expense`, `record_payment` (published invoices only), `reconcile_bank_transaction` (match an invoice, payment or expense, create an expense, mark a transfer, or ignore).
+
+There are no publish, void or delete tools. Lists return `{ total, offset, items, nextOffset }` (25 rows by default, 100 at most). Writes are audit-logged with `via: "mcp"` and the `apiKeyId`. The key's rate limit applies.
+
+Quick check with curl:
+
+```bash
+curl -s https://invoice.robotweb.dev/mcp \
+  -H "Authorization: Bearer inv_live_YOUR_KEY" \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```

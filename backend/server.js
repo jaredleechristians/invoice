@@ -75,6 +75,11 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/tenant", tenantRoutes);
 
+// MCP for API keys. /mcp is proxied by the web app; /api/mcp works too.
+const mcpRoutes = require("./routes/mcp");
+app.use("/mcp", mcpRoutes);
+app.use("/api/mcp", mcpRoutes);
+
 app.post("/api/pdf", upload.any(), async (req, res) => {
   try {
     const form = new FormData();
