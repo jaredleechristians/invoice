@@ -23,12 +23,10 @@
   padding: 0;
 }
 
-body:has(main.page) {
+/* The A4 sheet (print-only on /) keeps its own type. */
+.page {
   font-family: "DM Sans", system-ui, sans-serif;
   line-height: 1.45;
-}
-
-.page {
   padding: 2rem 1rem 4rem;
 }
 
