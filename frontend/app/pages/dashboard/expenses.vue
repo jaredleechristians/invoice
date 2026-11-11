@@ -215,8 +215,8 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
     <PageHeader info="Money out. Amounts stay in the currency you paid in.">
       <template #filters>
         <DatePicker v-model="filterRange" range :presets="DATE_PRESETS" clearable placeholder="All dates" />
-        <div class="w-48"><AppSelect v-model="filters.categoryId" searchable placeholder="All categories" :options="categories.map((c) => ({ label: c.name, value: c.id }))" /></div>
-        <div class="w-36"><AppSelect v-model="filters.currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
+        <div class="w-full sm:w-60"><AppSelect v-model="filters.categoryId" searchable placeholder="All categories" :options="categories.map((c) => ({ label: c.name, value: c.id }))" /></div>
+        <div class="w-full sm:w-44"><AppSelect v-model="filters.currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
       </template>
       <UButton variant="soft" color="neutral" icon="i-lucide-tags" @click="showCategories = true">Categories</UButton>
       <UButton icon="i-lucide-plus" @click="openNew">Add expense</UButton>

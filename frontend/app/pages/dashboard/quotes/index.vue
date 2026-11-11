@@ -40,8 +40,8 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
   <div class="space-y-6">
     <PageHeader info="Estimates you can send and convert into invoices.">
       <template #filters>
-        <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
-        <div class="w-44">
+        <UInput v-model="q" placeholder="Search number or customer" class="w-full sm:w-72" icon="i-lucide-search" />
+        <div class="w-full sm:w-44">
           <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: statusLabel(s), value: s }))" />
         </div>
       </template>

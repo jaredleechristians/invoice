@@ -300,7 +300,7 @@ function submit(finalize: boolean) {
         <div class="w-72 space-y-1 text-sm">
           <div v-if="vatRate > 0" class="flex justify-between"><span>Subtotal</span><span class="tabular-nums">{{ formatCurrency(totals.subtotal, form.currency) }}</span></div>
           <div v-if="vatRate > 0" class="flex justify-between"><span>VAT ({{ vatRate }}%)</span><span class="tabular-nums">{{ formatCurrency(totals.taxTotal, form.currency) }}</span></div>
-          <div class="flex justify-between text-lg font-semibold border-t border-accented pt-2"><span>Total</span><span class="tabular-nums">{{ formatCurrency(totals.total, form.currency) }}</span></div>
+          <div class="flex justify-between text-lg font-semibold pt-1"><span>Total</span><span class="tabular-nums">{{ formatCurrency(totals.total, form.currency) }}</span></div>
         </div>
       </div>
     </UCard>

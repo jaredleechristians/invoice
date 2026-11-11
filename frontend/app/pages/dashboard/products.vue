@@ -82,6 +82,9 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
 <template>
   <div class="space-y-6">
     <PageHeader title="Products & services" info="Saved items you can pick on invoice and quote lines. Prices are copied onto the line, so editing a product never changes old invoices.">
+      <template #filters>
+        <UCheckbox v-model="showInactive" label="Show inactive" />
+      </template>
       <UButton icon="i-lucide-plus" @click="openNew">Add product</UButton>
     </PageHeader>
 
@@ -116,7 +119,6 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
       </template>
     </USlideover>
 
-    <div class="flex justify-end"><UCheckbox v-model="showInactive" label="Show inactive" /></div>
 
     <UTable
       :data="products"

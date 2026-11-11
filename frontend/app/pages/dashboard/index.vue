@@ -48,7 +48,27 @@ const netThisMonth = computed(() => {
   return out;
 });
 
-const needsSetup = computed(() => company.value && !company.value.bankAccounts?.length);
+// Setup hint: shown until logo, address and bank details exist, unless dismissed
+// for this company (remembered in this browser).
+const setupDismissKey = computed(() => `setupNoticeDismissed:${activeCompanyId.value || ""}`);
+const setupDismissed = ref(false);
+watch(
+  setupDismissKey,
+  (key) => {
+    setupDismissed.value = import.meta.client && localStorage.getItem(key) === "1";
+  },
+  { immediate: true }
+);
+function dismissSetup() {
+  setupDismissed.value = true;
+  localStorage.setItem(setupDismissKey.value, "1");
+}
+const needsSetup = computed(
+  () =>
+    !!company.value &&
+    !setupDismissed.value &&
+    (!company.value.logoDataUrl || !company.value.address?.trim() || !company.value.bankAccounts?.length)
+);
 
 watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 </script>
@@ -62,7 +82,15 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
     </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
-    <UAlert v-if="needsSetup" color="info" variant="subtle" title="Add your logo, address and bank details so they appear on invoices.">
+    <UAlert
+      v-if="needsSetup"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-info"
+      title="Add your logo, address and bank details so they appear on invoices."
+      close
+      @update:open="(v: boolean) => !v && dismissSetup()"
+    >
       <template #description><NuxtLink to="/dashboard/settings" class="underline">Open settings</NuxtLink></template>
     </UAlert>
 

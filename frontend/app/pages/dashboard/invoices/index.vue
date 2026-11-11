@@ -60,9 +60,9 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
   <div class="space-y-6">
     <PageHeader info="Drafts get a number when you finalize them.">
       <template #filters>
-        <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
-        <div class="w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>
-        <div class="w-32"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
+        <UInput v-model="q" placeholder="Search number or customer" class="w-full sm:w-72" icon="i-lucide-search" />
+        <div class="w-full sm:w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>
+        <div class="w-full sm:w-44"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
       </template>
       <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">New invoice</UButton>
     </PageHeader>
