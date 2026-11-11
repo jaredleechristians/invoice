@@ -182,3 +182,15 @@ test("a user can create a second company and switch between isolated data", asyn
   assert.ok(!inFirst.includes("Only In Side Project"));
   assert.equal((await call(BOB, "GET", `/companies/${created.data.id}/customers`)).status, 403);
 });
+
+test("company settings: tax year end month defaults to Feb and is validated", async () => {
+  const companies = require("../lib/companies");
+  const c = await companies.createCompany({ uid: "tx1", email: "tx1@example.com", name: "Tax Co" });
+  const got = await companies.getCompany(c.id);
+  assert.equal(got.taxYearEndMonth, 2);
+  assert.equal(got.vatRate, 15);
+  const upd = await companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { taxYearEndMonth: 6 });
+  assert.equal(upd.taxYearEndMonth, 6);
+  await assert.rejects(() => companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { taxYearEndMonth: 13 }), /1-12/);
+  await assert.rejects(() => companies.updateCompanySettings(c.id, "tx1", "tx1@example.com", "owner", { vatRate: 101 }), /between 0 and 100/);
+});

@@ -20,10 +20,11 @@ type Reports = {
 const BUCKETS = ["current", "1-30", "31-60", "61-90", "90+"];
 const { activeCompanyId, capi } = useCompanyApi();
 
+const { company, ensure } = useCompany();
 const today = todayIso();
-const PRESETS = datePresets(today);
+const PRESETS = computed(() => datePresets(today, company.value?.taxYearEndMonth));
 
-const range = reactive({ from: PRESETS[1]!.from, to: today });
+const range = reactive({ from: `${today.slice(0, 4)}-01-01`, to: today });
 const data = ref<Reports | null>(null);
 const loading = ref(false);
 const error = ref("");
@@ -42,6 +43,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
+    ensure().catch(() => {});
     data.value = await capi<Reports>(`/reports?from=${range.from}&to=${range.to}`);
   } catch (e) {
     error.value = errMsg(e);

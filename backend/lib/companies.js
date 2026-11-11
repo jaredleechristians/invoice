@@ -29,6 +29,8 @@ const COMPANY_DEFAULTS = {
   vatRegistered: false,
   vatNumber: "",
   vatRate: 15,
+  // Tax year ends on the last day of this month (2 = SA: 1 Mar - end Feb).
+  taxYearEndMonth: 2,
   invoicePrefix: "INV-",
   quotePrefix: "QUO-",
   defaultCurrency: "ZAR",
@@ -193,6 +195,11 @@ function normalizeSettingsPatch(patch = {}) {
     const rate = parseAmount(patch.vatRate);
     if (rate < 0 || rate > 100) throw httpError(400, "VAT rate must be between 0 and 100");
     out.vatRate = rate;
+  }
+  if (patch.taxYearEndMonth !== undefined) {
+    const m = Number(patch.taxYearEndMonth);
+    if (!Number.isInteger(m) || m < 1 || m > 12) throw httpError(400, "Tax year end month must be 1-12");
+    out.taxYearEndMonth = m;
   }
   if (patch.defaultCurrency !== undefined) {
     const c = normalizeCurrency(patch.defaultCurrency, "");

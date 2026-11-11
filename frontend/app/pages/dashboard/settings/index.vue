@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CURRENCIES, fileToDataUrl } from "~/utils/money";
+import { DEFAULT_TAX_YEAR_END_MONTH, MONTH_FULL_NAMES, normalizeTaxYearEndMonth, taxYearLabel, taxYearRange } from "~/utils/taxYear";
 import type { BankAccount, CompanySettings } from "~/composables/useCompany";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
@@ -12,9 +13,19 @@ const saving = ref(false);
 const error = ref("");
 const saved = ref("");
 
+const TAX_YEAR_MONTHS = MONTH_FULL_NAMES.map((label, i) => ({ label: `End of ${label}`, value: i + 1 }));
+const taxYearHint = computed(() => (form.value ? taxYearLabel(taxYearRange(new Date().toISOString().slice(0, 10), form.value.taxYearEndMonth)) : ""));
+const vatRateError = computed(() => {
+  const r = form.value?.vatRate as unknown;
+  if (!form.value?.vatRegistered || r === "" || r === null || r === undefined) return undefined;
+  const n = Number(r);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? undefined : "Enter 0 to 100";
+});
+
 function load(c: CompanySettings | null) {
   form.value = c ? JSON.parse(JSON.stringify(c)) : null;
   if (form.value && !form.value.bankAccounts) form.value.bankAccounts = [];
+  if (form.value) form.value.taxYearEndMonth = normalizeTaxYearEndMonth(form.value.taxYearEndMonth);
 }
 
 watch(activeCompanyId, async (id) => {
@@ -61,6 +72,10 @@ const examplePreview = computed(() => {
 
 async function save() {
   if (!form.value) return;
+  if (vatRateError.value) {
+    error.value = "VAT rate must be between 0 and 100";
+    return;
+  }
   saving.value = true;
   error.value = "";
   saved.value = "";
@@ -78,7 +93,8 @@ async function save() {
       taxNumber: f.taxNumber,
       vatRegistered: f.vatRegistered,
       vatNumber: f.vatNumber,
-      vatRate: Number(f.vatRate),
+      vatRate: (f.vatRate as unknown) === "" || f.vatRate == null ? 15 : Number(f.vatRate),
+      taxYearEndMonth: Number(f.taxYearEndMonth) || DEFAULT_TAX_YEAR_END_MONTH,
       invoicePrefix: f.invoicePrefix,
       invoiceNextNumber: Number(f.invoiceNextNumber),
       quotePrefix: f.quotePrefix,
@@ -146,13 +162,18 @@ async function save() {
         <UCard>
           <template #header><span class="font-medium">Tax</span></template>
           <div class="grid gap-4 sm:grid-cols-3">
-            <UFormField label="Income tax number" class="sm:col-span-3"><UInput v-model="form.taxNumber" class="w-full" /></UFormField>
+            <UFormField label="Income tax number" class="sm:col-span-2"><UInput v-model="form.taxNumber" class="w-full" /></UFormField>
+            <UFormField label="Tax year end" :hint="taxYearHint">
+              <AppSelect v-model="form.taxYearEndMonth" :options="TAX_YEAR_MONTHS" />
+            </UFormField>
             <div class="sm:col-span-3">
               <UCheckbox v-model="form.vatRegistered" label="VAT registered (adds VAT to taxable invoice lines)" />
             </div>
             <template v-if="form.vatRegistered">
               <UFormField label="VAT number"><UInput v-model="form.vatNumber" class="w-full" /></UFormField>
-              <UFormField label="VAT rate (%)"><UInput v-model.number="form.vatRate" type="number" step="0.01" min="0" max="100" class="w-full" /></UFormField>
+              <UFormField label="VAT rate (%)" help="Default for new invoices and quotes. Existing ones keep their rate." :error="vatRateError">
+                <UInput v-model.number="form.vatRate" type="number" step="0.01" min="0" max="100" placeholder="15" class="w-full" />
+              </UFormField>
             </template>
             <p v-else class="text-sm text-dimmed sm:col-span-3">Not VAT registered: invoices show a plain total with no VAT line.</p>
           </div>

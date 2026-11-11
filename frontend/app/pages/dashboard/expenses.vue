@@ -32,7 +32,7 @@ const filterRange = computed({
   get: () => ({ from: filters.from, to: filters.to }),
   set: (v: { from: string; to: string }) => Object.assign(filters, v),
 });
-const DATE_PRESETS = datePresets();
+const DATE_PRESETS = computed(() => datePresets(todayIso(), company.value?.taxYearEndMonth));
 // Filters apply immediately.
 watch(() => ({ ...filters }), () => load(), { deep: true });
 const newCategory = ref("");

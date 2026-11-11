@@ -14,6 +14,7 @@ export type CompanySettings = {
   vatRegistered: boolean;
   vatNumber: string;
   vatRate: number;
+  taxYearEndMonth?: number;
   invoicePrefix: string;
   invoiceNextNumber: number;
   quotePrefix: string;
