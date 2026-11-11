@@ -22,6 +22,7 @@ type DocumentInput = {
   invoiceNumber?: string;
   quoteNumber?: string;
   paidAmount?: number;
+  exchangeRate?: number | null;
 };
 
 const props = withDefaults(
@@ -55,6 +56,7 @@ const form = reactive({
   reference: "",
   notes: "",
   items: [] as Line[],
+  exchangeRate: "" as string | number,
 });
 
 const vatRate = computed(() =>
@@ -97,6 +99,7 @@ async function init() {
   form.dueDate = src?.dueDate && /^\d{4}-\d{2}-\d{2}/.test(src.dueDate) ? src.dueDate.slice(0, 10) : addDays(form.issueDate, termsDays());
   form.expiryDate = src?.expiryDate ? src.expiryDate.slice(0, 10) : addDays(form.issueDate, termsDays());
   form.reference = src?.reference || "";
+  form.exchangeRate = src?.exchangeRate ? Number(src.exchangeRate) : "";
   form.notes = src ? src.notes || "" : isInvoice.value ? company.value?.defaultNotes || "" : "";
   form.items = src?.items?.length
     ? src.items.map((i) => ({ ...blankLine(), ...i, qty: Number(i.qty) || 0, unitPrice: Number(i.unitPrice) || 0, taxable: i.taxable !== false }))
@@ -171,7 +174,10 @@ function submit(finalize: boolean) {
       .map((i) => ({ ...i, qty: Number(i.qty) || 0, unitPrice: Number(i.unitPrice) || 0 })),
   };
   if (!form.customerId) body.customerName = form.customerName;
-  if (isInvoice.value) body.dueDate = form.dueDate;
+  if (isInvoice.value) {
+    body.dueDate = form.dueDate;
+    if (form.currency !== "ZAR") body.exchangeRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : null;
+  }
   else body.expiryDate = form.expiryDate;
   emit("submit", { body, finalize });
 }
@@ -222,6 +228,9 @@ function submit(finalize: boolean) {
         </UFormField>
         <UFormField v-else label="Valid until">
           <DatePicker v-model="form.expiryDate" block :presets="termPresets" />
+        </UFormField>
+        <UFormField v-if="isInvoice && form.currency !== 'ZAR'" :label="`ZAR per ${form.currency} on issue date`" hint="Optional" help="Used to work out forex gain or loss when it is paid.">
+          <UInput v-model="form.exchangeRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.25" class="w-full" />
         </UFormField>
       </div>
     </UCard>
