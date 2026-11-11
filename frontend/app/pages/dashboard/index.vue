@@ -97,7 +97,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
     <div v-if="user && summary" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <UCard>
         <p class="text-sm text-muted">Outstanding <span class="text-dimmed">({{ summary.openCount }})</span></p>
-        <MoneyList :value="summary.outstanding" empty="Nothing owed" />
+        <MoneyList :value="summary.outstanding" empty="None" />
         <NuxtLink to="/dashboard/invoices?status=open" class="text-xs text-dimmed underline">View</NuxtLink>
       </UCard>
       <UCard>
