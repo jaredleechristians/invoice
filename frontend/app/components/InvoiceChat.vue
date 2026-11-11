@@ -13,6 +13,17 @@ const messagesEl = ref<HTMLElement | null>(null)
 const history = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
 const bubbles = ref<ChatBubble[]>([])
 
+const suggestions = [
+  "Bill Acme Pty Ltd, Cape Town, 10 hours design at R850",
+  "Make it due in 30 days",
+  "Add a line: hosting, 12 months at R150",
+]
+
+function ask(text: string) {
+  draft.value = text
+  sendMessage()
+}
+
 watch(open, async (value) => {
   if (value) {
     await nextTick()
@@ -129,6 +140,12 @@ async function sendMessage() {
 
     <template #body>
       <div ref="messagesEl" class="h-full overflow-y-auto p-4 space-y-3 text-sm" aria-live="polite">
+        <div v-if="!bubbles.length" class="space-y-2">
+          <p class="text-xs font-medium uppercase tracking-wide text-dimmed">Try</p>
+          <div class="flex flex-wrap gap-2">
+            <UButton v-for="s in suggestions" :key="s" size="xs" color="neutral" variant="outline" :label="s" @click="ask(s)" />
+          </div>
+        </div>
         <div
           v-for="(bubble, index) in bubbles"
           :key="index"
