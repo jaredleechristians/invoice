@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { DropdownMenuItem } from "@nuxt/ui";
 import { datePresets, formatCurrency, formatDate, todayIso } from "~/utils/money";
+import { ALL_REPORTS_EXPORT, EXPORT_FORMATS, REPORT_EXPORTS, downloadReport, type ReportExport } from "~/utils/reportExports";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -77,20 +79,17 @@ function maxOf(rows: { received: number; invoiced: number }[]) {
   return Math.max(1, ...rows.map((r) => Math.max(r.received, r.invoiced)));
 }
 
-function exportCsv() {
-  if (!data.value) return;
-  const lines: string[][] = [["Report", "Currency", "Key", "Value 1", "Value 2", "Value 3"]];
-  for (const [c, v] of Object.entries(data.value.profitAndLoss)) lines.push(["P&L (cash)", c, "Income / Expenses / Net", String(v.income), String(v.expenses), String(v.net)]);
-  for (const c of incomeCurrencies.value) for (const r of monthRows(c)) lines.push(["Income by month", c, r.month, String(r.received), String(r.invoiced), ""]);
-  for (const [c, rows] of Object.entries(data.value.incomeByCustomer)) for (const r of rows) lines.push(["Income by customer", c, r.customerName, String(r.received), String(r.invoiced), String(r.invoiceCount)]);
-  for (const [c, v] of Object.entries(data.value.expensesByCategory)) for (const r of v.rows) lines.push(["Expenses by category", c, r.categoryName, String(r.amount), String(r.count), ""]);
-  for (const i of data.value.outstandingInvoices) lines.push(["Outstanding", i.currency, i.invoiceNumber, String(i.outstanding), i.dueDate, String(i.daysOverdue)]);
-  const csv = lines.map((l) => l.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = `reports-${range.from}-to-${range.to}.csv`;
-  a.click();
-}
+// One group of report items per export format, then the combined export.
+const exportItems = computed<DropdownMenuItem[][]>(() =>
+  EXPORT_FORMATS.flatMap((fmt) => {
+    const item = (r: ReportExport) => ({
+      label: EXPORT_FORMATS.length > 1 ? `${r.label} (${fmt.label})` : r.label,
+      icon: r.icon,
+      onSelect: () => data.value && downloadReport(data.value, r, fmt),
+    });
+    return [REPORT_EXPORTS.map(item), [item(ALL_REPORTS_EXPORT)]];
+  })
+);
 
 watch(activeCompanyId, load, { immediate: true });
 </script>
@@ -98,20 +97,15 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Split by currency — amounts are never converted or added across currencies. P&L is cash basis (payments received minus expenses).">
-      <UButton variant="soft" color="neutral" icon="i-lucide-download" :disabled="!data" @click="exportCsv">CSV</UButton>
+      <template #filters>
+        <DatePicker v-model="rangeModel" range :presets="PRESETS" />
+        <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" :loading="loading" aria-label="Refresh" @click="load" />
+      </template>
+      <UDropdownMenu :items="exportItems" :content="{ align: 'end' }" :disabled="!data">
+        <UButton variant="soft" color="neutral" icon="i-lucide-download" trailing-icon="i-lucide-chevron-down" :disabled="!data">Export</UButton>
+      </UDropdownMenu>
     </PageHeader>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <DatePicker v-model="rangeModel" range :presets="PRESETS" />
-      <UButton
-        color="neutral"
-        variant="ghost"
-        icon="i-lucide-refresh-cw"
-        :loading="loading"
-        aria-label="Refresh"
-        @click="load"
-      />
-    </div>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
 
