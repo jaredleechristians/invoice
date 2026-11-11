@@ -168,3 +168,17 @@ test("invoice PDF HTML picks the bank account matching the invoice currency", as
   assert.doesNotMatch(html, /ZAR bank/);
   assert.doesNotMatch(html, /VAT/);
 });
+
+test("a user can create a second company and switch between isolated data", async () => {
+  const created = await call(ALICE, "POST", "/companies", { name: "Side Project Ltd" });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.role, "owner");
+  const me = await call(ALICE, "GET", "/me");
+  const row = me.data.companies.find((c) => c.id === created.data.id);
+  assert.equal(row?.name, "Side Project Ltd");
+  assert.equal(row?.role, "owner");
+  await call(ALICE, "POST", `/companies/${created.data.id}/customers`, { name: "Only In Side Project" });
+  const inFirst = (await call(ALICE, "GET", `/companies/${aliceCo}/customers`)).data.customers.map((c) => c.name);
+  assert.ok(!inFirst.includes("Only In Side Project"));
+  assert.equal((await call(BOB, "GET", `/companies/${created.data.id}/customers`)).status, 403);
+});

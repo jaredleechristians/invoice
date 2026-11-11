@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { user, configured, logout, ready } = useAuth();
-const { activeCompanyId, loadMe, bootstrap, restoreActiveCompany, setActiveCompany } = useTenantApi();
+const { activeCompanyId, apiFetch, loadMe, bootstrap, restoreActiveCompany, setActiveCompany } = useTenantApi();
+const toast = useToast();
 const { company, refresh: refreshCompany } = useCompany();
 
 const companies = ref<{ id: string; name: string; role: string }[]>([]);
@@ -47,19 +48,60 @@ function initials(name?: string | null) {
   return (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
 }
 
+const ROLE_LABELS: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+
+/** Detail/edit pages belong to one company; leave them when switching. */
+const COMPANY_SCOPED_DETAIL = /^\/dashboard\/(invoices|quotes)\/(?!new$)[^/]+/;
+
+async function switchCompany(id: string) {
+  if (id === activeCompanyId.value) return;
+  if (COMPANY_SCOPED_DETAIL.test(route.path)) await navigateTo("/dashboard");
+  setActiveCompany(id);
+  const name = companies.value.find((c) => c.id === id)?.name;
+  if (name) toast.add({ title: `Switched to ${name}`, icon: "i-lucide-building-2", color: "neutral" });
+}
+
 const companyItems = computed<DropdownMenuItem[][]>(() => [
+  [{ type: "label" as const, label: "Companies" }],
   companies.value.map((c) => ({
     label: c.name,
+    description: ROLE_LABELS[c.role] || c.role,
     avatar: { text: initials(c.name), size: "2xs" as const },
     type: "checkbox" as const,
     checked: c.id === activeCompanyId.value,
-    onSelect: () => setActiveCompany(c.id),
+    onSelect: () => switchCompany(c.id),
   })),
+  [{ label: "New company", icon: "i-lucide-plus", onSelect: () => openNewCompany() }],
   [
     { label: "Company settings", icon: "i-lucide-settings", to: "/dashboard/settings" },
     { label: "Members", icon: "i-lucide-users", to: "/dashboard/settings/members" },
   ],
 ]);
+
+// ---------- new company ----------
+const newCompany = reactive({ open: false, name: "", saving: false, error: "" });
+function openNewCompany() {
+  Object.assign(newCompany, { open: true, name: "", saving: false, error: "" });
+}
+async function createCompany() {
+  const name = newCompany.name.trim();
+  if (!name || newCompany.saving) return;
+  newCompany.saving = true;
+  newCompany.error = "";
+  try {
+    const c = await apiFetch<{ id: string; name: string; role: string }>("/companies", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    companies.value = [...companies.value, { id: c.id, name: c.name, role: c.role || "owner" }];
+    newCompany.open = false;
+    await switchCompany(c.id);
+  } catch (e) {
+    newCompany.error = e instanceof Error ? e.message : "Couldn't create the company";
+  } finally {
+    newCompany.saving = false;
+  }
+}
 
 const userItems = computed<DropdownMenuItem[][]>(() => [
   [{ type: "label" as const, label: user.value?.displayName || "Signed in", description: user.value?.email || "" }],
@@ -224,12 +266,31 @@ watch(() => company.value?.name, (name) => {
       <template #body>
         <UAlert v-if="error" class="mb-4" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="error" />
         <div class="mx-auto w-full max-w-6xl">
-          <slot v-if="user || isPublicDashboardPath(route.path)" />
+          <!-- Keyed by company: switching remounts the page, so nothing from the previous company lingers. -->
+          <div v-if="user || isPublicDashboardPath(route.path)" :key="activeCompanyId || 'none'" class="contents">
+            <slot />
+          </div>
           <div v-else class="flex justify-center py-16 text-dimmed">
             <UIcon name="i-lucide-loader-circle" class="size-6 animate-spin" />
           </div>
         </div>
       </template>
     </UDashboardPanel>
+    <UModal v-model:open="newCompany.open" title="New company" description="You'll be the owner. You can add your logo, address and bank details in settings afterwards." :ui="{ content: 'sm:max-w-md' }">
+      <template #body>
+        <form id="new-company-form" class="space-y-4" @submit.prevent="createCompany">
+          <UAlert v-if="newCompany.error" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="newCompany.error" />
+          <UFormField label="Company name" required>
+            <UInput v-model="newCompany.name" placeholder="e.g. Harbour & Co. Consulting" autofocus class="w-full" />
+          </UFormField>
+        </form>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" @click="newCompany.open = false">Cancel</UButton>
+          <UButton type="submit" form="new-company-form" icon="i-lucide-plus" :loading="newCompany.saving" :disabled="!newCompany.name.trim()">Create company</UButton>
+        </div>
+      </template>
+    </UModal>
   </UDashboardGroup>
 </template>
