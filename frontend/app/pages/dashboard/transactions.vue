@@ -163,72 +163,6 @@ const totals = computed(() => {
   return { inn, out };
 });
 
-// ---------- bank accounts ----------
-
-const accountForm = reactive({
-  open: false,
-  id: "",
-  name: "",
-  bank: "standard_bank",
-  currency: "ZAR",
-  accountLast4: "",
-  openingBalance: "" as string | number,
-  openingDate: "",
-  saving: false,
-  error: "",
-});
-const BANK_OPTIONS = computed(() => banks.value.map((b) => ({ label: b.label, value: b.value })));
-
-function openAccount(a?: BankAccount) {
-  Object.assign(accountForm, {
-    open: true,
-    id: a?.id || "",
-    name: a?.name || "",
-    bank: a?.bank || "standard_bank",
-    currency: a?.currency || company.value?.defaultCurrency || "ZAR",
-    accountLast4: a?.accountLast4 || "",
-    openingBalance: a ? a.openingBalance : "",
-    openingDate: a?.openingDate || "",
-    saving: false,
-    error: "",
-  });
-}
-
-async function saveAccount() {
-  accountForm.saving = true;
-  accountForm.error = "";
-  try {
-    const body = {
-      name: accountForm.name,
-      bank: accountForm.bank,
-      currency: accountForm.currency,
-      accountLast4: accountForm.accountLast4,
-      openingBalance: Number(accountForm.openingBalance) || 0,
-      openingDate: accountForm.openingDate,
-    };
-    if (accountForm.id) await cpatch(`/bank-accounts/${accountForm.id}`, body);
-    else await cpost("/bank-accounts", body);
-    toast.add({ title: accountForm.id ? "Account updated" : "Account added", description: accountForm.name, color: "success", icon: "i-lucide-check" });
-    accountForm.open = false;
-    await loadAccounts();
-  } catch (e) {
-    accountForm.error = errMsg(e);
-  } finally {
-    accountForm.saving = false;
-  }
-}
-
-async function deleteAccount() {
-  if (!confirm(`Delete ${accountForm.name}?`)) return;
-  try {
-    await cdelete(`/bank-accounts/${accountForm.id}`);
-    accountForm.open = false;
-    if (filters.accountId === accountForm.id) filters.accountId = "";
-    await loadAccounts();
-  } catch (e) {
-    accountForm.error = errMsg(e);
-  }
-}
 
 // ---------- import ----------
 
@@ -584,7 +518,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
         <UTooltip text="Import history">
           <UButton variant="ghost" color="neutral" icon="i-lucide-history" aria-label="Import history" @click="openHistory" />
         </UTooltip>
-        <UButton v-if="isAdmin" variant="soft" color="neutral" icon="i-lucide-plus" @click="openAccount()">Add bank account</UButton>
+        <UButton variant="soft" color="neutral" icon="i-lucide-settings" to="/dashboard/settings#bank-accounts">Manage accounts</UButton>
         <UButton icon="i-lucide-upload" @click="openImport">Import</UButton>
       </template>
     </PageHeader>
@@ -597,10 +531,10 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
       </div>
       <div class="space-y-1">
         <p class="font-medium text-highlighted">Add your first bank account</p>
-        <p class="text-sm text-muted">Then import a statement (OFX or CSV) and match each line to invoices, payments or expenses.</p>
+        <p class="text-sm text-muted">Bank accounts live in Settings. Then import a statement (OFX or CSV) and match each line to invoices, payments or expenses.</p>
       </div>
-      <UButton v-if="isAdmin" icon="i-lucide-plus" @click="openAccount()">Add bank account</UButton>
-      <p v-else class="text-sm text-dimmed">Ask an owner or admin to add one.</p>
+      <UButton v-if="isAdmin" icon="i-lucide-settings" to="/dashboard/settings#bank-accounts">Add in Settings</UButton>
+      <p v-else class="text-sm text-dimmed">Ask an owner or admin to add one in Settings.</p>
     </UCard>
 
     <div v-else-if="accounts.length" class="flex gap-3 overflow-x-auto pb-1">
@@ -614,7 +548,6 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
       >
         <div class="flex items-center gap-1">
           <p class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">{{ a.name }}</p>
-          <UButton v-if="isAdmin" size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="Edit account" class="opacity-0 group-hover:opacity-100 focus:opacity-100" @click.stop="openAccount(a)" />
         </div>
         <p class="truncate text-xs text-dimmed">{{ BANK_LABELS[a.bank] || "Other" }}{{ a.accountLast4 ? ` · ${a.accountLast4}` : "" }} · {{ a.currency }}</p>
         <div class="mt-1 flex items-center justify-between gap-2">
@@ -672,34 +605,6 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
       </template>
       <template #empty><p class="py-6 text-center text-sm text-dimmed">No transactions. Import a statement to start.</p></template>
     </UTable>
-
-    <!-- Bank account -->
-    <UModal v-model:open="accountForm.open" :title="accountForm.id ? 'Edit bank account' : 'Add bank account'">
-      <template #body>
-        <form id="bank-account-form" class="space-y-4" @submit.prevent="saveAccount">
-          <UAlert v-if="accountForm.error" color="error" variant="subtle" icon="i-lucide-circle-alert" :title="accountForm.error" />
-          <UFormField label="Name" required><UInput v-model="accountForm.name" placeholder="e.g. Business cheque" autofocus class="w-full" /></UFormField>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="Bank"><AppSelect v-model="accountForm.bank" searchable :options="BANK_OPTIONS" /></UFormField>
-            <UFormField label="Currency"><AppSelect v-model="accountForm.currency" :options="currencies.map((c) => ({ label: c, value: c }))" /></UFormField>
-          </div>
-          <UFormField label="Last 4 digits" hint="Optional"><UInput v-model="accountForm.accountLast4" maxlength="4" inputmode="numeric" class="w-full" /></UFormField>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="Opening balance" hint="Optional"><UInput v-model="accountForm.openingBalance" type="number" step="0.01" class="w-full" /></UFormField>
-            <UFormField label="Opening date" hint="Optional"><DatePicker v-model="accountForm.openingDate" block clearable /></UFormField>
-          </div>
-        </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full items-center gap-2">
-          <UButton v-if="accountForm.id" variant="ghost" color="error" icon="i-lucide-trash" @click="deleteAccount">Delete</UButton>
-          <div class="ml-auto flex gap-2">
-            <UButton variant="ghost" color="neutral" @click="accountForm.open = false">Cancel</UButton>
-            <UButton type="submit" form="bank-account-form" :loading="accountForm.saving" :disabled="!accountForm.name.trim()">Save</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
 
     <!-- Import -->
     <USlideover v-model:open="imp.open" title="Import statement" description="OFX, QFX, QBO or CSV. Lines already imported are skipped." :ui="{ content: 'sm:max-w-3xl' }">

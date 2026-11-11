@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CURRENCIES, fileToDataUrl } from "~/utils/money";
 import { DEFAULT_TAX_YEAR_END_MONTH, MONTH_FULL_NAMES, normalizeTaxYearEndMonth, taxYearLabel, taxYearRange } from "~/utils/taxYear";
-import type { BankAccount, CompanySettings } from "~/composables/useCompany";
+import type { CompanySettings } from "~/composables/useCompany";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -24,7 +24,6 @@ const vatRateError = computed(() => {
 
 function load(c: CompanySettings | null) {
   form.value = c ? JSON.parse(JSON.stringify(c)) : null;
-  if (form.value && !form.value.bankAccounts) form.value.bankAccounts = [];
   if (form.value) form.value.taxYearEndMonth = normalizeTaxYearEndMonth(form.value.taxYearEndMonth);
 }
 
@@ -36,13 +35,6 @@ watch(activeCompanyId, async (id) => {
     error.value = errMsg(e);
   }
 }, { immediate: true });
-
-function addBank() {
-  form.value?.bankAccounts.push({ label: "", currency: form.value.defaultCurrency || "ZAR", details: "" } as BankAccount);
-}
-function removeBank(i: number) {
-  form.value?.bankAccounts.splice(i, 1);
-}
 
 const logoFile = ref<File | null>(null);
 watch(logoFile, (f) => onLogo(f));
@@ -106,7 +98,6 @@ async function save() {
       defaultNotes: f.defaultNotes,
       legal: f.legal,
       footer: f.footer,
-      bankAccounts: f.bankAccounts,
     });
     company.value = updated;
     load(updated);
@@ -209,33 +200,13 @@ async function save() {
           </div>
         </UCard>
 
-        <UCard>
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="font-medium">Bank / payment details</span>
-              <UButton size="xs" variant="soft" icon="i-lucide-plus" @click="addBank">Add account</UButton>
-            </div>
-          </template>
-          <p class="text-sm text-muted mb-4">Shown on invoices. Accounts tagged with a currency only appear on invoices in that currency; untagged accounts appear on all.</p>
-          <div v-if="form.bankAccounts.length" class="space-y-4">
-            <div v-for="(acct, i) in form.bankAccounts" :key="acct.id || i" class="grid gap-3 sm:grid-cols-[1fr_8rem_auto] items-start border border-default rounded-lg p-3">
-              <UFormField label="Label"><UInput v-model="acct.label" class="w-full" placeholder="ZAR — South African bank" /></UFormField>
-              <UFormField label="Currency">
-                <AppSelect v-model="acct.currency" placeholder="Any" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
-              </UFormField>
-              <UButton class="mt-6" size="xs" color="error" variant="ghost" icon="i-lucide-trash" @click="removeBank(i)" />
-              <UFormField label="Details (plain text)" class="sm:col-span-3">
-                <UTextarea v-model="acct.details" :rows="4" class="w-full font-mono" placeholder="Bank: …&#10;Account name: …&#10;Account number: …&#10;Branch code: …" />
-              </UFormField>
-            </div>
-          </div>
-          <p v-else class="text-sm text-dimmed">No accounts yet. Add your ZAR bank account and your USD Wise details.</p>
-        </UCard>
       </fieldset>
 
       <div v-if="isAdmin" class="flex gap-2">
         <UButton type="submit" :loading="saving">Save settings</UButton>
       </div>
     </form>
+
+    <BankAccountsCard v-if="form" />
   </div>
 </template>

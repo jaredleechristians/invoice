@@ -1,3 +1,4 @@
+// Read-only: payment details derived from bank accounts shown on invoices (manage them in Settings > Bank accounts).
 export type BankAccount = { id?: string; label: string; currency: string; details: string };
 
 export type CompanySettings = {
