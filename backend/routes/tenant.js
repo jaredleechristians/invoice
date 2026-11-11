@@ -240,6 +240,10 @@ company.get("/bank-transactions/:transactionId/suggestions", h((req) => bank.sug
 company.post("/bank-transactions/:transactionId/reconcile", h((req) => bank.reconcile(...actor(req), req.params.transactionId, req.body || {})));
 company.post("/bank-transactions/:transactionId/undo", h((req) => bank.undo(...actor(req), req.params.transactionId, req.body || {})));
 
+// ---------- restore (undo a soft delete) ----------
+
+company.post("/restore/:kind/:id", h((req) => require("../lib/restore").restoreRecord(...actor(req), req.params.kind, req.params.id)));
+
 // ---------- reports ----------
 
 company.get("/summary", h((req) => reports.companySummary(req.companyId)));

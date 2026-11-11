@@ -1,3 +1,4 @@
+const { deletion, deletedSnap } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { companyRef } = require("./refs");
@@ -69,7 +70,7 @@ async function updateCategory(companyId, uid, email, role, categoryId, body = {}
   const name = cleanCategoryName(body.name);
   const ref = categoriesCol(companyId).doc(categoryId);
   const snap = await ref.get();
-  if (!snap.exists) throw httpError(404, "Category not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Category not found");
   await ref.set({ name, updatedAt: new Date().toISOString() }, { merge: true });
   // Keep the denormalised name on expenses in sync.
   const used = await fetchAll(expensesCol(companyId).where("categoryId", "==", categoryId));
@@ -85,9 +86,11 @@ async function updateCategory(companyId, uid, email, role, categoryId, body = {}
 
 async function deleteCategory(companyId, uid, email, role, categoryId) {
   assertCan(canManageSettings, role);
-  const used = await expensesCol(companyId).where("categoryId", "==", categoryId).limit(1).get();
-  if (!used.empty) throw httpError(409, "Category is used by expenses; rename it or move those expenses first");
-  await categoriesCol(companyId).doc(categoryId).delete();
+  const used = await fetchAll(expensesCol(companyId).where("categoryId", "==", categoryId));
+  if (used.length) throw httpError(409, "Category is used by expenses; rename it or move those expenses first");
+  const ref = categoriesCol(companyId).doc(categoryId);
+  if (deletedSnap(await ref.get())) throw httpError(404, "Category not found");
+  await ref.set(deletion(uid), { merge: true });
   await logAudit({ companyId, uid, email, action: "expenseCategory.delete", payload: { id: categoryId } });
 }
 
@@ -101,7 +104,7 @@ async function normalizeExpense(companyId, body, company) {
   let categoryName = "";
   if (categoryId) {
     const snap = await categoriesCol(companyId).doc(categoryId).get();
-    if (!snap.exists) throw httpError(400, "Unknown expense category");
+    if (deletedSnap(snap)) throw httpError(400, "Unknown expense category");
     categoryName = snap.data().name;
   } else {
     categoryName = "Uncategorised";
@@ -137,7 +140,7 @@ async function listExpenses(companyId, { from, to, categoryId, currency, q } = {
 
 async function getExpense(companyId, expenseId) {
   const snap = await expensesCol(companyId).doc(expenseId).get();
-  if (!snap.exists) throw httpError(404, "Expense not found");
+  if (deletedSnap(snap)) throw httpError(404, "Expense not found");
   return { id: snap.id, ...snap.data() };
 }
 
@@ -206,14 +209,15 @@ async function deleteExpense(companyId, uid, email, role, expenseId) {
   const existing = await getExpense(companyId, expenseId);
   const db = getDb();
   const batch = db.batch();
-  batch.delete(expensesCol(companyId).doc(expenseId));
-  batch.delete(receiptsCol(companyId).doc(expenseId));
+  // Soft delete; the receipt is kept with it (and hidden, since the expense 404s).
+  batch.set(expensesCol(companyId).doc(expenseId), { ...deletion(uid), transactionId: "", bankAccountId: "" }, { merge: true });
   await batch.commit();
   if (existing.transactionId) await releaseTransaction(companyId, existing.transactionId);
   await logAudit({ companyId, uid, email, action: "expense.delete", payload: { expenseId, amount: existing.amount, currency: existing.currency } });
 }
 
 async function getReceipt(companyId, expenseId) {
+  await getExpense(companyId, expenseId);
   const snap = await receiptsCol(companyId).doc(expenseId).get();
   if (!snap.exists) throw httpError(404, "No receipt attached");
   const r = snap.data();

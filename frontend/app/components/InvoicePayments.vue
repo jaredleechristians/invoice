@@ -77,7 +77,7 @@ async function voidPayment(p: Payment) {
 }
 
 async function deletePayment(p: Payment) {
-  if (!confirm(`Delete this ${formatCurrency(p.amount, p.currency)} payment permanently?`)) return;
+  if (!confirm(`Delete this ${formatCurrency(p.amount, p.currency)} payment?`)) return;
   busyId.value = p.id;
   try {
     const r = await cdelete<{ invoice: any }>(`/payments/${p.id}`);

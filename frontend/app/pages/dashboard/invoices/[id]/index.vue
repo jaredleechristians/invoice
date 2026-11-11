@@ -74,7 +74,7 @@ const voidInvoice = () => {
 };
 
 const remove = () => {
-  if (!confirm(invoice.value?.draft ? "Delete this draft?" : "Delete this invoice permanently? Prefer Void for issued invoices.")) return;
+  if (!confirm(invoice.value?.draft ? "Delete this draft?" : "Delete this invoice? Its number stays used. Prefer Void for issued invoices.")) return;
   return run("delete", async () => {
     await cdelete(`/invoices/${id.value}`);
     await navigateTo("/dashboard/invoices");

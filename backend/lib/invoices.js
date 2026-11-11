@@ -1,3 +1,4 @@
+const { deletion } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { companyRef } = require("./refs");
@@ -98,7 +99,7 @@ async function listInvoices(companyId, { q, status, customerId, currency, limit 
 async function getInvoice(companyId, invoiceId) {
   const db = getDb();
   const snap = await invoicesCol(db, companyId).doc(invoiceId).get();
-  if (!snap.exists) return null;
+  if (!snap.exists || snap.data().deletedAt) return null;
   return withComputed({ id: snap.id, ...snap.data() });
 }
 
@@ -264,7 +265,7 @@ async function finalizeInvoice(companyId, uid, email, role, invoiceId) {
 async function countActivePayments(companyId, invoiceId, { includeVoided = false } = {}) {
   const db = getDb();
   const snap = await companyRef(db, companyId).collection("payments").where("invoiceId", "==", invoiceId).get();
-  return snap.docs.filter((d) => includeVoided || !d.data().voided).length;
+  return snap.docs.filter((d) => !d.data().deletedAt && (includeVoided || !d.data().voided)).length;
 }
 
 async function voidInvoice(companyId, uid, email, role, invoiceId, { reason = "" } = {}) {
@@ -310,7 +311,8 @@ async function deleteInvoice(companyId, uid, email, role, invoiceId) {
     throw httpError(409, "This invoice has payments. Delete them first, or void the invoice instead.");
   }
   const db = getDb();
-  await invoicesCol(db, companyId).doc(invoiceId).delete();
+  // Soft delete: the document (and its number) stays, hidden everywhere.
+  await invoicesCol(db, companyId).doc(invoiceId).set(deletion(uid), { merge: true });
   await logAudit({ companyId, uid, email, action: "invoice.delete", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, draft: existing.draft } });
 }
 

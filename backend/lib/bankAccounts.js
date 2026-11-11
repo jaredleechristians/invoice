@@ -235,7 +235,7 @@ async function listAccounts(companyId) {
 async function getAccount(companyId, accountId) {
   if (!accountId) throw httpError(400, "Pick a bank account");
   const snap = await accountsCol(companyId).doc(String(accountId)).get();
-  if (!snap.exists) throw httpError(404, "Bank account not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Bank account not found");
   const data = snap.data();
   return { id: snap.id, showOnInvoices: true, ...data, bank: normalizeBank(data.bank) };
 }
@@ -258,8 +258,8 @@ async function updateAccount(companyId, uid, email, role, accountId, body = {}) 
   const company = await loadCompanyData(companyId);
   const data = normalizeAccount(body, company, existing);
   if (data.currency !== existing.currency) {
-    const used = await txCol(companyId).where("accountId", "==", accountId).limit(1).get();
-    if (!used.empty) throw httpError(409, "Cannot change the currency after importing transactions");
+    const used = await fetchAll(txCol(companyId).where("accountId", "==", accountId));
+    if (used.length) throw httpError(409, "Cannot change the currency after importing transactions");
   }
   const patch = { ...data, updatedAt: new Date().toISOString() };
   await accountsCol(companyId).doc(accountId).set(patch, { merge: true });
@@ -270,9 +270,9 @@ async function updateAccount(companyId, uid, email, role, accountId, body = {}) 
 async function deleteAccount(companyId, uid, email, role, accountId) {
   assertCan(canManageSettings, role);
   const existing = await getAccount(companyId, accountId);
-  const used = await txCol(companyId).where("accountId", "==", accountId).limit(1).get();
-  if (!used.empty) throw httpError(409, "This account has transactions. Delete its imports first.");
-  await accountsCol(companyId).doc(accountId).delete();
+  const used = await fetchAll(txCol(companyId).where("accountId", "==", accountId));
+  if (used.length) throw httpError(409, "This account has transactions. Delete its imports first.");
+  await accountsCol(companyId).doc(accountId).set({ deletedAt: new Date().toISOString(), deletedBy: uid }, { merge: true });
   await logAudit({ companyId, uid, email, action: "bankAccount.delete", payload: { id: accountId, name: existing.name } });
 }
 

@@ -7,7 +7,7 @@ const PAGE_SIZE = 500;
  * Read every document matching a query in pages (no hard row cap).
  * Uses document-snapshot cursors, so it works with or without orderBy.
  */
-async function fetchAll(query, { pageSize = PAGE_SIZE } = {}) {
+async function fetchAll(query, { pageSize = PAGE_SIZE, includeDeleted = false } = {}) {
   const out = [];
   let last = null;
   // eslint-disable-next-line no-constant-condition
@@ -19,7 +19,8 @@ async function fetchAll(query, { pageSize = PAGE_SIZE } = {}) {
     if (snap.docs.length < pageSize) break;
     last = snap.docs[snap.docs.length - 1];
   }
-  return out;
+  // Soft-deleted records (deletedAt set) are hidden unless asked for.
+  return includeDeleted ? out : out.filter((r) => !r.deletedAt);
 }
 
 function col(companyId, name) {

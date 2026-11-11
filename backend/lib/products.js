@@ -1,3 +1,4 @@
+const { deletion } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { companyRef } = require("./refs");
@@ -49,7 +50,7 @@ async function updateProduct(companyId, uid, email, role, productId, body) {
   assertCan(canWriteRecords, role);
   const ref = productsCol(companyId).doc(productId);
   const snap = await ref.get();
-  if (!snap.exists) throw httpError(404, "Product not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Product not found");
   const data = normalizeProduct({ ...snap.data(), ...body });
   const patch = { ...data, updatedAt: new Date().toISOString() };
   await ref.set(patch, { merge: true });
@@ -61,9 +62,9 @@ async function deleteProduct(companyId, uid, email, role, productId) {
   assertCan(canDeleteRecords, role);
   const ref = productsCol(companyId).doc(productId);
   const snap = await ref.get();
-  if (!snap.exists) throw httpError(404, "Product not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Product not found");
   // Invoice lines keep their own description/price copy, so deleting is safe.
-  await ref.delete();
+  await ref.set(deletion(uid), { merge: true });
   await logAudit({ companyId, uid, email, action: "product.delete", payload: { productId } });
 }
 

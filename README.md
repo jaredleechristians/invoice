@@ -93,6 +93,8 @@ Leave all three unset in production.
 
 - `members`, `invites`, `counters`, `customers`, `products`, `invoices`, `quotes`, `payments`, `expenses`, `expenseCategories`, `expenseReceipts`, `auditLog`, `assistantActions` (pending assistant proposals; server-only)
 
+Deletes are soft: the document stays with `deletedAt`/`deletedBy` (and an audit entry), and every list, get, report, statement, assistant and MCP tool skips it. Invoice and quote numbers are never reused. Owners and admins can undo with `POST /companies/:id/restore/:kind/:id` (kind: invoice, quote, customer, product, expense, payment, expenseCategory, bankAccount). Deleted bank imports can't be restored; import the file again. Removing a member or revoking an invite is still a real delete.
+
 Deploy `firestore.rules` and `firestore.indexes.json` with the Firebase CLI when you go live.
 
 ## Company assistant: how writes work
