@@ -1,0 +1,235 @@
+const { getDb } = require("./firebase");
+const { randomId } = require("./ids");
+const { companyRef } = require("./refs");
+const { httpError } = require("./errors");
+const { canWriteRecords, canDeleteRecords, canManageSettings, assertCan } = require("./permissions");
+const { logAudit } = require("./audit");
+const { roundMoney, normalizeCurrency } = require("./money");
+const { fetchAll } = require("./db");
+const { toIsoDate, todayIso, inRange } = require("./dates");
+
+// Receipts are stored in Firestore (separate doc) to avoid new infra; keep them small.
+const MAX_RECEIPT_BYTES = 700 * 1024;
+const RECEIPT_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/heic", "image/gif"];
+
+const DEFAULT_CATEGORIES = [
+  "Advertising & marketing",
+  "Bank charges",
+  "Contractors",
+  "Equipment",
+  "Hosting & domains",
+  "Office & supplies",
+  "Professional fees",
+  "Software & subscriptions",
+  "Telephone & internet",
+  "Travel",
+  "Other",
+];
+
+const expensesCol = (companyId) => companyRef(getDb(), companyId).collection("expenses");
+const categoriesCol = (companyId) => companyRef(getDb(), companyId).collection("expenseCategories");
+const receiptsCol = (companyId) => companyRef(getDb(), companyId).collection("expenseReceipts");
+
+// ---------- categories ----------
+
+async function listCategories(companyId, { seed = true } = {}) {
+  let rows = await fetchAll(categoriesCol(companyId));
+  if (!rows.length && seed) {
+    const db = getDb();
+    const batch = db.batch();
+    const now = new Date().toISOString();
+    rows = DEFAULT_CATEGORIES.map((name) => ({ id: randomId(8), name, createdAt: now }));
+    for (const r of rows) batch.set(categoriesCol(companyId).doc(r.id), { name: r.name, createdAt: now });
+    await batch.commit();
+  }
+  return rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+function cleanCategoryName(name) {
+  const n = String(name || "").trim().slice(0, 80);
+  if (!n) throw httpError(400, "Category name is required");
+  return n;
+}
+
+async function createCategory(companyId, uid, email, role, body = {}) {
+  assertCan(canWriteRecords, role);
+  const name = cleanCategoryName(body.name);
+  const existing = await listCategories(companyId, { seed: false });
+  if (existing.some((c) => c.name.toLowerCase() === name.toLowerCase())) throw httpError(409, "Category already exists");
+  const id = randomId(8);
+  const doc = { name, createdAt: new Date().toISOString() };
+  await categoriesCol(companyId).doc(id).set(doc);
+  await logAudit({ companyId, uid, email, action: "expenseCategory.create", payload: { id, name } });
+  return { id, ...doc };
+}
+
+async function updateCategory(companyId, uid, email, role, categoryId, body = {}) {
+  assertCan(canManageSettings, role);
+  const name = cleanCategoryName(body.name);
+  const ref = categoriesCol(companyId).doc(categoryId);
+  const snap = await ref.get();
+  if (!snap.exists) throw httpError(404, "Category not found");
+  await ref.set({ name, updatedAt: new Date().toISOString() }, { merge: true });
+  // Keep the denormalised name on expenses in sync.
+  const used = await fetchAll(expensesCol(companyId).where("categoryId", "==", categoryId));
+  const db = getDb();
+  for (let i = 0; i < used.length; i += 400) {
+    const batch = db.batch();
+    for (const e of used.slice(i, i + 400)) batch.set(expensesCol(companyId).doc(e.id), { categoryName: name }, { merge: true });
+    await batch.commit();
+  }
+  await logAudit({ companyId, uid, email, action: "expenseCategory.update", payload: { id: categoryId, name } });
+  return { id: categoryId, ...snap.data(), name };
+}
+
+async function deleteCategory(companyId, uid, email, role, categoryId) {
+  assertCan(canManageSettings, role);
+  const used = await expensesCol(companyId).where("categoryId", "==", categoryId).limit(1).get();
+  if (!used.empty) throw httpError(409, "Category is used by expenses; rename it or move those expenses first");
+  await categoriesCol(companyId).doc(categoryId).delete();
+  await logAudit({ companyId, uid, email, action: "expenseCategory.delete", payload: { id: categoryId } });
+}
+
+// ---------- expenses ----------
+
+async function normalizeExpense(companyId, body, company) {
+  const amount = roundMoney(body.amount);
+  if (!(amount > 0)) throw httpError(400, "Amount must be greater than zero");
+  const date = toIsoDate(body.date) || todayIso();
+  let categoryId = String(body.categoryId || "");
+  let categoryName = "";
+  if (categoryId) {
+    const snap = await categoriesCol(companyId).doc(categoryId).get();
+    if (!snap.exists) throw httpError(400, "Unknown expense category");
+    categoryName = snap.data().name;
+  } else {
+    categoryName = "Uncategorised";
+  }
+  return {
+    date,
+    vendor: String(body.vendor || "").trim().slice(0, 200),
+    categoryId,
+    categoryName,
+    amount,
+    currency: normalizeCurrency(body.currency, company?.defaultCurrency || "ZAR"),
+    reference: String(body.reference || "").trim().slice(0, 120),
+    notes: String(body.notes || "").trim().slice(0, 2000),
+  };
+}
+
+async function loadCompanyData(companyId) {
+  const snap = await companyRef(getDb(), companyId).get();
+  return snap.exists ? snap.data() : {};
+}
+
+async function listExpenses(companyId, { from, to, categoryId, currency, q } = {}) {
+  let rows = await fetchAll(expensesCol(companyId));
+  rows = rows.filter((e) => inRange(e.date, from, to));
+  if (categoryId) rows = rows.filter((e) => e.categoryId === categoryId);
+  if (currency) rows = rows.filter((e) => e.currency === currency);
+  if (q) {
+    const needle = String(q).toLowerCase();
+    rows = rows.filter((e) => e.vendor?.toLowerCase().includes(needle) || e.notes?.toLowerCase().includes(needle));
+  }
+  return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+}
+
+async function getExpense(companyId, expenseId) {
+  const snap = await expensesCol(companyId).doc(expenseId).get();
+  if (!snap.exists) throw httpError(404, "Expense not found");
+  return { id: snap.id, ...snap.data() };
+}
+
+function decodeReceipt(receipt) {
+  if (!receipt) return null;
+  const contentType = String(receipt.contentType || "");
+  if (!RECEIPT_TYPES.includes(contentType)) throw httpError(400, "Receipt must be a PDF or image");
+  const data = String(receipt.dataBase64 || "").replace(/^data:[^,]+,/, "");
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(data)) throw httpError(400, "Receipt data must be base64");
+  const size = Buffer.from(data, "base64").length;
+  if (!size) throw httpError(400, "Receipt is empty");
+  if (size > MAX_RECEIPT_BYTES) throw httpError(400, "Receipt must be 700 KB or smaller (compress or photograph at lower resolution)");
+  return { dataBase64: data.replace(/\s+/g, ""), contentType, filename: String(receipt.filename || "receipt").slice(0, 120), size };
+}
+
+async function createExpense(companyId, uid, email, role, body = {}) {
+  assertCan(canWriteRecords, role);
+  const company = await loadCompanyData(companyId);
+  const data = await normalizeExpense(companyId, body, company);
+  const receipt = decodeReceipt(body.receipt);
+  const id = randomId();
+  const now = new Date().toISOString();
+  const doc = {
+    ...data,
+    receipt: receipt ? { filename: receipt.filename, contentType: receipt.contentType, size: receipt.size } : null,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: uid,
+  };
+  const db = getDb();
+  const batch = db.batch();
+  batch.set(expensesCol(companyId).doc(id), doc);
+  if (receipt) batch.set(receiptsCol(companyId).doc(id), { ...receipt, uploadedAt: now });
+  await batch.commit();
+  await logAudit({ companyId, uid, email, action: "expense.create", payload: { expenseId: id, amount: data.amount, currency: data.currency } });
+  return { id, ...doc };
+}
+
+async function updateExpense(companyId, uid, email, role, expenseId, body = {}) {
+  assertCan(canWriteRecords, role);
+  const existing = await getExpense(companyId, expenseId);
+  const company = await loadCompanyData(companyId);
+  const data = await normalizeExpense(companyId, { ...existing, ...body }, company);
+  const now = new Date().toISOString();
+  const patch = { ...data, updatedAt: now };
+  const db = getDb();
+  const batch = db.batch();
+  if (body.receipt !== undefined) {
+    const receipt = decodeReceipt(body.receipt);
+    if (receipt) {
+      patch.receipt = { filename: receipt.filename, contentType: receipt.contentType, size: receipt.size };
+      batch.set(receiptsCol(companyId).doc(expenseId), { ...receipt, uploadedAt: now });
+    } else {
+      patch.receipt = null;
+      batch.delete(receiptsCol(companyId).doc(expenseId));
+    }
+  }
+  batch.set(expensesCol(companyId).doc(expenseId), patch, { merge: true });
+  await batch.commit();
+  await logAudit({ companyId, uid, email, action: "expense.update", payload: { expenseId } });
+  return { ...existing, ...patch };
+}
+
+async function deleteExpense(companyId, uid, email, role, expenseId) {
+  assertCan(canDeleteRecords, role);
+  const existing = await getExpense(companyId, expenseId);
+  const db = getDb();
+  const batch = db.batch();
+  batch.delete(expensesCol(companyId).doc(expenseId));
+  batch.delete(receiptsCol(companyId).doc(expenseId));
+  await batch.commit();
+  await logAudit({ companyId, uid, email, action: "expense.delete", payload: { expenseId, amount: existing.amount, currency: existing.currency } });
+}
+
+async function getReceipt(companyId, expenseId) {
+  const snap = await receiptsCol(companyId).doc(expenseId).get();
+  if (!snap.exists) throw httpError(404, "No receipt attached");
+  const r = snap.data();
+  return { buffer: Buffer.from(r.dataBase64, "base64"), contentType: r.contentType, filename: r.filename };
+}
+
+module.exports = {
+  DEFAULT_CATEGORIES,
+  MAX_RECEIPT_BYTES,
+  listCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  listExpenses,
+  getExpense,
+  createExpense,
+  updateExpense,
+  deleteExpense,
+  getReceipt,
+  decodeReceipt,
+};

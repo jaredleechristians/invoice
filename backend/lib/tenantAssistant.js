@@ -3,6 +3,7 @@ const { listInvoices } = require("./invoices");
 const { listReceivables } = require("./receivables");
 const { buildStatement } = require("./statements");
 const { logAudit } = require("./audit");
+const { companySummary } = require("./reports");
 
 const TOOL_DEFS = [
   {
@@ -39,6 +40,14 @@ const TOOL_DEFS = [
   {
     type: "function",
     function: {
+      name: "financial_summary",
+      description: "Outstanding, overdue, and this month's income and expenses, per currency",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "customer_statement",
       description: "Open invoice statement for a customer id",
       parameters: {
@@ -68,6 +77,7 @@ async function runTool(companyId, name, args) {
         invoiceNumber: inv.invoiceNumber,
         customerName: inv.customerName,
         status: inv.status,
+        currency: inv.currency,
         total: inv.total,
         outstanding: inv.outstanding,
         dueDate: inv.dueDate,
@@ -77,6 +87,10 @@ async function runTool(companyId, name, args) {
   if (name === "who_owes_money") {
     return { receivables: await listReceivables(companyId) };
   }
+  if (name === "financial_summary") {
+    const { recentInvoices, topOverdue, ...summary } = await companySummary(companyId);
+    return { ...summary, topOverdue };
+  }
   if (name === "customer_statement") {
     return await buildStatement(companyId, args.customerId);
   }
@@ -85,9 +99,10 @@ async function runTool(companyId, name, args) {
 
 function buildTenantSystemPrompt(companyName) {
   return `You are the signed-in invoice assistant for company "${companyName}".
-Use tools to read customers, invoices, who owes money, and statements. All amounts are ZAR (no VAT).
+Use tools to read customers, invoices, who owes money, financial summaries, and statements.
+Every amount has a currency (e.g. ZAR or USD). Never add amounts in different currencies together and never convert between them.
 Do not invent financial data — call tools first.
-For create/update/payment actions, explain what the user should do in the app (this chat is read-only for writes).
+You are read-only: you cannot create, edit, void or record anything. For those actions, tell the user which screen to use (Invoices, Quotes, Expenses, Settings).
 Reply concisely in plain language.`;
 }
 
