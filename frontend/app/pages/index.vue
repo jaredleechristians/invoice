@@ -18,10 +18,6 @@ onMounted(() => {
           </span>
           <span class="font-semibold text-highlighted hidden sm:inline">Invoice</span>
         </NuxtLink>
-        <USeparator orientation="vertical" class="h-6 mx-1" />
-        <h1 class="min-w-0 truncate font-semibold text-highlighted">
-          {{ hydrated && invoice.invoiceNumber ? invoice.invoiceNumber : "New invoice" }}
-        </h1>
 
         <div class="ms-auto flex items-center gap-1.5">
           <InvoiceChat v-if="hydrated" />
