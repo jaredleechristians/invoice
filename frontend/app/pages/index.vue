@@ -22,7 +22,6 @@ onMounted(() => {
         <h1 class="min-w-0 truncate font-semibold text-highlighted">
           {{ hydrated && invoice.invoiceNumber ? invoice.invoiceNumber : "New invoice" }}
         </h1>
-        <UBadge color="neutral" variant="subtle" size="sm" class="hidden md:inline-flex">No account needed</UBadge>
 
         <div class="ms-auto flex items-center gap-1.5">
           <InvoiceChat v-if="hydrated" />
