@@ -133,7 +133,7 @@ async function sendMessage() {
   <USlideover
     v-model:open="open"
     title="Invoice assistant"
-    description="Tell me who you're billing and for what, and I'll fill in the invoice for you. Change anything after, one line at a time."
+    description="Tell me who you're billing and for what, and I'll fill in the invoice for you."
     :ui="{ content: 'sm:max-w-md', body: 'p-0 sm:p-0' }"
   >
     <UButton icon="i-lucide-sparkles" variant="soft" color="primary" label="Assistant" class="max-sm:[&>span:last-child]:hidden" aria-label="Assistant" />
