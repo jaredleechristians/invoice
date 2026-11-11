@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { datePresets, formatCurrency, formatDate, todayIso } from "~/utils/money";
-import { ALL_REPORTS_EXPORT, EXPORT_FORMATS, REPORT_EXPORTS, downloadReport, type ReportExport } from "~/utils/reportExports";
+import { EXPORT_FORMATS, REPORT_EXPORTS, downloadReport, type ReportExport } from "~/utils/reportExports";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -79,7 +79,7 @@ function maxOf(rows: { received: number; invoiced: number }[]) {
   return Math.max(1, ...rows.map((r) => Math.max(r.received, r.invoiced)));
 }
 
-// One group of report items per export format, then the combined export.
+// One group of report items per export format.
 const exportItems = computed<DropdownMenuItem[][]>(() =>
   EXPORT_FORMATS.flatMap((fmt) => {
     const item = (r: ReportExport) => ({
@@ -87,7 +87,7 @@ const exportItems = computed<DropdownMenuItem[][]>(() =>
       icon: r.icon,
       onSelect: () => data.value && downloadReport(data.value, r, fmt),
     });
-    return [REPORT_EXPORTS.map(item), [item(ALL_REPORTS_EXPORT)]];
+    return [REPORT_EXPORTS.map(item)];
   })
 );
 
