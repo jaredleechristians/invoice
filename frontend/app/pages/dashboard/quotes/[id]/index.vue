@@ -67,15 +67,12 @@ watch([activeCompanyId, id], load, { immediate: true });
   <div class="mx-auto w-full max-w-5xl space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-semibold">{{ quote?.quoteNumber || "Quote" }}</h1>
-          <UBadge v-if="quote" :color="STATUS_COLORS[quote.displayStatus] || 'neutral'" variant="subtle">{{ statusLabel(quote.displayStatus) }}</UBadge>
-        </div>
-        <p v-if="quote" class="text-muted text-sm mt-1">
+        <p v-if="quote" class="flex flex-wrap items-center gap-2 text-muted text-sm">
+          <UBadge :color="STATUS_COLORS[quote.displayStatus] || 'neutral'" variant="subtle">{{ statusLabel(quote.displayStatus) }}</UBadge>
           {{ quote.customerName || "No customer" }} · {{ quote.currency }} · {{ formatDate(quote.issueDateIso) }} · valid until {{ formatDate(quote.expiryDateIso) }}
         </p>
       </div>
-      <PageHeader>
+      <PageHeader :title="quote?.quoteNumber || 'Quote'">
         <UButton to="/dashboard/quotes" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Quotes</UButton>
       </PageHeader>
     </div>

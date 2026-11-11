@@ -93,16 +93,13 @@ watch([activeCompanyId, id], load, { immediate: true });
   <div class="mx-auto w-full max-w-5xl space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-semibold">{{ invoice?.invoiceNumber || "Draft invoice" }}</h1>
-          <UBadge v-if="invoice" :color="STATUS_COLORS[invoice.status] || 'neutral'" variant="subtle">{{ statusLabel(invoice.status) }}</UBadge>
-        </div>
-        <p v-if="invoice" class="text-muted text-sm mt-1">
+        <p v-if="invoice" class="flex flex-wrap items-center gap-2 text-muted text-sm">
+          <UBadge :color="STATUS_COLORS[invoice.status] || 'neutral'" variant="subtle">{{ statusLabel(invoice.status) }}</UBadge>
           {{ invoice.customerName || "No customer" }} · {{ invoice.currency }} · issued {{ formatDate(invoice.issueDateIso) }}
           <template v-if="invoice.dueDate"> · due {{ invoice.dueDateIso ? formatDate(invoice.dueDateIso) : invoice.dueDate }}</template>
         </p>
       </div>
-      <PageHeader>
+      <PageHeader :title="invoice?.invoiceNumber || 'Draft invoice'">
         <UButton to="/dashboard/invoices" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Invoices</UButton>
       </PageHeader>
     </div>
