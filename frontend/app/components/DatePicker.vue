@@ -8,6 +8,7 @@ import { formatDate } from "~/utils/money";
  *
  * - Single mode (default): v-model is an ISO "YYYY-MM-DD" string ("" = none).
  * - Range mode (`range`):  v-model is { from, to } ISO strings ("" = open-ended).
+ * - The default slot ({ label, empty, open }) replaces the trigger button.
  */
 export type DatePreset = { label: string; value?: string; from?: string; to?: string };
 type Range = { from: string; to: string };
@@ -87,21 +88,23 @@ function clear() {
 
 <template>
   <UPopover v-model:open="open" :content="{ align: 'start', sideOffset: 6 }">
-    <UButton
-      color="neutral"
-      variant="outline"
-      :icon="range ? 'i-lucide-calendar-range' : 'i-lucide-calendar'"
-      trailing-icon="i-lucide-chevron-down"
-      :size="size"
-      :block="block"
-      :disabled="disabled"
-      class="justify-between font-normal"
-      :class="range ? 'min-w-60' : 'min-w-40'"
-      :ui="{ trailingIcon: 'text-dimmed ms-auto' }"
-    >
-      <span class="truncate" :class="empty ? 'text-dimmed' : 'text-default'">{{ label }}</span>
-      <UBadge v-if="range && activePreset" size="sm" variant="subtle" color="primary" class="ms-1">{{ activePreset.label }}</UBadge>
-    </UButton>
+    <slot :label="label" :empty="empty" :open="open">
+      <UButton
+        color="neutral"
+        variant="outline"
+        :icon="range ? 'i-lucide-calendar-range' : 'i-lucide-calendar'"
+        trailing-icon="i-lucide-chevron-down"
+        :size="size"
+        :block="block"
+        :disabled="disabled"
+        class="justify-between font-normal"
+        :class="range ? 'min-w-60' : 'min-w-40'"
+        :ui="{ trailingIcon: 'text-dimmed ms-auto' }"
+      >
+        <span class="truncate" :class="empty ? 'text-dimmed' : 'text-default'">{{ label }}</span>
+        <UBadge v-if="range && activePreset" size="sm" variant="subtle" color="primary" class="ms-1">{{ activePreset.label }}</UBadge>
+      </UButton>
+    </slot>
 
     <template #content>
       <div class="flex flex-col sm:flex-row">

@@ -1,13 +1,9 @@
 <script setup lang="ts">
 const {
   invoice,
-  savedFlash,
   addLineItem,
   removeLineItem,
-  saveToStorage,
 } = useInvoice()
-
-const pdfBusy = ref(false)
 
 const totalLabel = computed(() => formatMoney(invoiceTotal(invoice.value)))
 const headerDetails = computed(() =>
@@ -37,48 +33,27 @@ useHead(() => ({
   title: `Invoice — ${invoice.value.invoiceNumber || 'Draft'}`,
 }))
 
-async function downloadPdf() {
-  pdfBusy.value = true
-  try {
-    const html = buildExportHtml(invoice.value)
-    const form = new FormData()
-    form.append('files', new Blob([html], { type: 'text/html' }), 'index.html')
-    form.append('paperWidth', '8.27')
-    form.append('paperHeight', '11.7')
-    form.append('marginTop', '0')
-    form.append('marginBottom', '0')
-    form.append('marginLeft', '0')
-    form.append('marginRight', '0')
-    form.append('printBackground', 'true')
-    form.append('preferCssPageSize', 'false')
-    form.append('emulatedMediaType', 'print')
-
-    const res = await fetch('/api/pdf', { method: 'POST', body: form })
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '')
-      throw new Error(`HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`)
-    }
-
-    const blob = await res.blob()
-    const filename = `${(invoice.value.invoiceNumber || 'invoice').replace(/[^\w.-]+/g, '_')}.pdf`
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  } catch (err: any) {
-    console.error(err)
-    alert(
-      'PDF export failed. Start the stack with docker compose up, then open the Nuxt app.\n\n' +
-        String(err?.message || err),
-    )
-  } finally {
-    pdfBusy.value = false
+/** The editor stores display dates ("27 Jul 2026"); the picker works in ISO. */
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+function displayToIso(value: string) {
+  const m = /^(\d{1,2})\s+([a-z]{3})[a-z]*\.?\s+(\d{4})$/i.exec(value.trim())
+  if (m) {
+    const mo = MONTHS.indexOf(m[2]!.toLowerCase())
+    if (mo >= 0) return `${m[3]}-${String(mo + 1).padStart(2, '0')}-${m[1]!.padStart(2, '0')}`
   }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return value.trim()
+  return ''
 }
+function dateModel(key: 'issueDate' | 'dueDate') {
+  return computed({
+    get: () => displayToIso(invoice.value[key] || ''),
+    set: (iso: string) => {
+      invoice.value[key] = iso ? formatDate(iso) : ''
+    },
+  })
+}
+const issueDateIso = dateModel('issueDate')
+const dueDateIso = dateModel('dueDate')
 </script>
 
 <template>
@@ -110,23 +85,23 @@ async function downloadPdf() {
               </div>
               <div class="doc-meta-row">
                 <span>Issue date:</span>
-                <input
-                  v-model="invoice.issueDate"
-                  class="field mono"
-                  type="text"
-                  aria-label="Issue date"
-                  style="text-align:right;width:auto;min-width:7rem;color:var(--ink);font-weight:500"
-                >
+                <DatePicker v-model="issueDateIso">
+                  <template #default="{ empty }">
+                    <button type="button" class="field mono date-trigger" data-testid="issue-date" aria-label="Issue date">
+                      {{ empty ? (invoice.issueDate || 'Pick a date') : invoice.issueDate }}
+                    </button>
+                  </template>
+                </DatePicker>
               </div>
               <div class="doc-meta-row">
                 <span>Due date:</span>
-                <input
-                  v-model="invoice.dueDate"
-                  class="field mono"
-                  type="text"
-                  aria-label="Due date"
-                  style="text-align:right;width:auto;min-width:7rem;color:var(--ink);font-weight:500"
-                >
+                <DatePicker v-model="dueDateIso">
+                  <template #default="{ empty }">
+                    <button type="button" class="field mono date-trigger" data-testid="due-date" aria-label="Due date">
+                      {{ empty ? (invoice.dueDate || 'Pick a date') : invoice.dueDate }}
+                    </button>
+                  </template>
+                </DatePicker>
               </div>
             </div>
           </div>
@@ -220,7 +195,7 @@ async function downloadPdf() {
                   aria-label="Remove line item"
                   @click="removeLineItem(index)"
                 >
-                  ×
+                  <UIcon name="i-lucide-x" class="size-4" />
                 </button>
               </td>
             </tr>
@@ -229,7 +204,7 @@ async function downloadPdf() {
 
         <div class="line-actions">
           <button type="button" class="btn-add" @click="addLineItem">
-            + Add line item
+            <UIcon name="i-lucide-plus" class="size-4" /> Add line item
           </button>
         </div>
 
@@ -308,15 +283,5 @@ async function downloadPdf() {
       </div>
     </article>
 
-    <div class="toolbar toolbar--below">
-      <div class="toolbar-actions">
-        <button type="button" class="btn btn-secondary" @click="saveToStorage">
-          {{ savedFlash ? 'Saved' : 'Save' }}
-        </button>
-        <button type="button" class="btn" :disabled="pdfBusy" @click="downloadPdf">
-          {{ pdfBusy ? 'Preparing PDF…' : 'Download PDF' }}
-        </button>
-      </div>
-    </div>
   </div>
 </template>

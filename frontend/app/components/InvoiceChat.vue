@@ -11,13 +11,7 @@ const sending = ref(false)
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const history = ref<{ role: 'user' | 'assistant'; content: string }[]>([])
-const bubbles = ref<ChatBubble[]>([
-  {
-    role: 'system',
-    content:
-      'Paste a full invoice brief or send one change at a time. I’ll apply what you provide and confirm each update.',
-  },
-])
+const bubbles = ref<ChatBubble[]>([])
 
 watch(open, async (value) => {
   if (value) {
@@ -125,63 +119,55 @@ async function sendMessage() {
 </script>
 
 <template>
-  <div>
-    <button
-      type="button"
-      class="chat-fab"
-      :aria-expanded="open"
-      aria-controls="chatPanel"
-      aria-label="Open invoice assistant"
-      @click="open = !open"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-      </svg>
-    </button>
+  <USlideover
+    v-model:open="open"
+    title="Invoice assistant"
+    description="Paste a full brief or send one change at a time. I'll apply it to the invoice and tell you what changed."
+    :ui="{ content: 'sm:max-w-md', body: 'p-0 sm:p-0' }"
+  >
+    <UButton icon="i-lucide-sparkles" variant="soft" color="primary" label="Assistant" class="max-sm:[&>span:last-child]:hidden" aria-label="Assistant" />
 
-    <aside
-      v-show="open"
-      id="chatPanel"
-      class="chat-panel"
-      aria-label="Invoice assistant"
-    >
-      <div class="chat-header">
-        <div>
-          <h2>Invoice assistant</h2>
-          <p class="chat-subtitle">Full brief or one change · live feedback</p>
-        </div>
-        <button type="button" class="chat-close" aria-label="Close chat" @click="open = false">
-          ×
-        </button>
-      </div>
-
-      <div ref="messagesEl" class="chat-messages" aria-live="polite">
+    <template #body>
+      <div ref="messagesEl" class="h-full overflow-y-auto p-4 space-y-3 text-sm" aria-live="polite">
         <div
           v-for="(bubble, index) in bubbles"
           :key="index"
-          class="chat-bubble"
-          :class="bubble.role"
+          class="flex"
+          :class="bubble.role === 'user' ? 'justify-end' : 'justify-start'"
         >
-          {{ bubble.content }}
+          <div
+            class="max-w-[85%] rounded-lg px-3 py-2 whitespace-pre-wrap"
+            :class="{
+              'bg-primary text-inverted': bubble.role === 'user',
+              'bg-elevated border border-default': bubble.role === 'assistant',
+              'text-muted italic': bubble.role === 'system',
+              'bg-error/10 text-error border border-error/20': bubble.role === 'error',
+            }"
+          >
+            {{ bubble.content }}
+          </div>
         </div>
-        <div v-if="sending" class="chat-bubble system">Updating invoice…</div>
+        <div v-if="sending" class="flex items-center gap-2 text-dimmed">
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Updating invoice…
+        </div>
       </div>
+    </template>
 
-      <form class="chat-composer" @submit.prevent="sendMessage">
-        <textarea
+    <template #footer>
+      <form class="flex w-full items-end gap-2" @submit.prevent="sendMessage">
+        <UTextarea
           v-model="draft"
-          rows="3"
-          placeholder="Paste a full brief, or e.g. Set bill to Acme Pty Ltd, Cape Town"
-          required
+          class="flex-1"
+          :rows="2"
+          autoresize
+          :maxrows="8"
+          placeholder="e.g. Bill Acme Pty Ltd, Cape Town — 10 hours design at R850"
+          :disabled="sending"
           @keydown.meta.enter.prevent="sendMessage"
           @keydown.ctrl.enter.prevent="sendMessage"
         />
-        <div class="chat-composer-row">
-          <button type="submit" class="btn" :disabled="sending">
-            {{ sending ? 'Thinking…' : 'Send' }}
-          </button>
-        </div>
+        <UButton type="submit" icon="i-lucide-send" :loading="sending" :disabled="!draft.trim()" aria-label="Send" />
       </form>
-    </aside>
-  </div>
+    </template>
+  </USlideover>
 </template>
