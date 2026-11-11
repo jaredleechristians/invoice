@@ -26,7 +26,6 @@ onMounted(() => {
         <div class="ms-auto flex items-center gap-1.5">
           <InvoiceChat v-if="hydrated" />
           <UColorModeButton />
-          <UButton to="/dashboard/login" color="neutral" variant="outline" icon="i-lucide-log-in" label="Sign in" class="max-sm:[&>span:last-child]:hidden" />
         </div>
       </div>
     </header>
