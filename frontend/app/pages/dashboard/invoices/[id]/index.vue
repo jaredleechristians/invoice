@@ -91,30 +91,27 @@ watch([activeCompanyId, id], load, { immediate: true });
 
 <template>
   <div class="mx-auto w-full max-w-5xl space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
+    <PageHeader :title="invoice?.invoiceNumber || 'Draft invoice'">
+      <template #filters>
+        <UButton to="/dashboard/invoices" variant="ghost" color="neutral" icon="i-lucide-arrow-left" aria-label="Back to invoices" />
         <p v-if="invoice" class="flex flex-wrap items-center gap-2 text-muted text-sm">
           <UBadge :color="STATUS_COLORS[invoice.status] || 'neutral'" variant="subtle">{{ statusLabel(invoice.status) }}</UBadge>
           {{ invoice.customerName || "No customer" }} · {{ invoice.currency }} · issued {{ formatDate(invoice.issueDateIso) }}
           <template v-if="invoice.dueDate"> · due {{ invoice.dueDateIso ? formatDate(invoice.dueDateIso) : invoice.dueDate }}</template>
         </p>
-      </div>
-      <PageHeader :title="invoice?.invoiceNumber || 'Draft invoice'">
-        <UButton to="/dashboard/invoices" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Invoices</UButton>
-      </PageHeader>
-    </div>
+      </template>
+      <template v-if="invoice">
+        <UButton v-if="!invoice.voided" :to="`/dashboard/invoices/${invoice.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
+        <UButton v-if="invoice.draft" icon="i-lucide-check" :loading="busy === 'finalize'" @click="finalize">Finalize</UButton>
+        <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
+        <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
+        <UButton v-if="isAdmin && !invoice.draft && !invoice.voided" variant="ghost" color="warning" icon="i-lucide-ban" :loading="busy === 'void'" @click="voidInvoice">Void</UButton>
+        <UButton v-if="isAdmin && (invoice.draft || !invoice.paidAmount)" variant="ghost" color="error" icon="i-lucide-trash" :loading="busy === 'delete'" @click="remove">Delete</UButton>
+      </template>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="invoice?.voided" color="neutral" variant="subtle" :title="`Void${invoice.voidReason ? ': ' + invoice.voidReason : ''}`" />
-
-    <div v-if="invoice" class="flex flex-wrap gap-2">
-      <UButton v-if="!invoice.voided" :to="`/dashboard/invoices/${invoice.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
-      <UButton v-if="invoice.draft" icon="i-lucide-check" :loading="busy === 'finalize'" @click="finalize">Finalize</UButton>
-      <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
-      <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
-      <UButton v-if="isAdmin && !invoice.draft && !invoice.voided" variant="ghost" color="warning" icon="i-lucide-ban" :loading="busy === 'void'" @click="voidInvoice">Void</UButton>
-      <UButton v-if="isAdmin && (invoice.draft || !invoice.paidAmount)" variant="ghost" color="error" icon="i-lucide-trash" :loading="busy === 'delete'" @click="remove">Delete</UButton>
-    </div>
 
     <div v-if="invoice" class="grid gap-4 md:grid-cols-3">
       <UCard>

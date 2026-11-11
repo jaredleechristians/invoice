@@ -99,6 +99,9 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Bill-to contacts. A default currency pre-selects ZAR or USD on new invoices.">
+      <template #filters>
+        <UInput v-model="q" placeholder="Search customers" icon="i-lucide-search" class="w-full max-w-sm" />
+      </template>
       <UButton icon="i-lucide-plus" @click="openNew">Add customer</UButton>
     </PageHeader>
 
@@ -129,8 +132,6 @@ watch(activeCompanyId, load, { immediate: true });
         </div>
       </template>
     </USlideover>
-
-    <UInput v-model="q" placeholder="Search customers" icon="i-lucide-search" class="max-w-sm" />
 
     <UTable
       :data="filtered"

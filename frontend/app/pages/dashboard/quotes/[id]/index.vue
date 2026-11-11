@@ -65,35 +65,32 @@ watch([activeCompanyId, id], load, { immediate: true });
 
 <template>
   <div class="mx-auto w-full max-w-5xl space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
+    <PageHeader :title="quote?.quoteNumber || 'Quote'">
+      <template #filters>
+        <UButton to="/dashboard/quotes" variant="ghost" color="neutral" icon="i-lucide-arrow-left" aria-label="Back to quotes" />
         <p v-if="quote" class="flex flex-wrap items-center gap-2 text-muted text-sm">
           <UBadge :color="STATUS_COLORS[quote.displayStatus] || 'neutral'" variant="subtle">{{ statusLabel(quote.displayStatus) }}</UBadge>
           {{ quote.customerName || "No customer" }} · {{ quote.currency }} · {{ formatDate(quote.issueDateIso) }} · valid until {{ formatDate(quote.expiryDateIso) }}
         </p>
-      </div>
-      <PageHeader :title="quote?.quoteNumber || 'Quote'">
-        <UButton to="/dashboard/quotes" variant="ghost" color="neutral" icon="i-lucide-arrow-left">Quotes</UButton>
-      </PageHeader>
-    </div>
+      </template>
+      <template v-if="quote">
+        <template v-if="quote.status !== 'converted'">
+          <UButton :to="`/dashboard/quotes/${quote.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
+          <UButton v-if="quote.status === 'draft'" variant="soft" :loading="busy === 'sent'" @click="setStatus('sent')">Mark sent</UButton>
+          <UButton v-if="quote.status !== 'accepted'" variant="soft" color="success" :loading="busy === 'accepted'" @click="setStatus('accepted')">Mark accepted</UButton>
+          <UButton v-if="quote.status !== 'declined'" variant="ghost" color="error" :loading="busy === 'declined'" @click="setStatus('declined')">Mark declined</UButton>
+          <UButton v-if="quote.status !== 'declined'" icon="i-lucide-arrow-right-left" :loading="busy === 'convert'" @click="convert">Convert to invoice</UButton>
+        </template>
+        <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
+        <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
+        <UButton v-if="isAdmin" variant="ghost" color="error" icon="i-lucide-trash" :loading="busy === 'delete'" @click="remove">Delete</UButton>
+      </template>
+    </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <UAlert v-if="quote?.convertedInvoiceId" color="primary" variant="subtle" title="Converted to an invoice.">
       <template #description><NuxtLink class="underline" :to="`/dashboard/invoices/${quote.convertedInvoiceId}`">Open invoice</NuxtLink></template>
     </UAlert>
-
-    <div v-if="quote" class="flex flex-wrap gap-2">
-      <template v-if="quote.status !== 'converted'">
-        <UButton :to="`/dashboard/quotes/${quote.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
-        <UButton v-if="quote.status === 'draft'" variant="soft" :loading="busy === 'sent'" @click="setStatus('sent')">Mark sent</UButton>
-        <UButton v-if="quote.status !== 'accepted'" variant="soft" color="success" :loading="busy === 'accepted'" @click="setStatus('accepted')">Mark accepted</UButton>
-        <UButton v-if="quote.status !== 'declined'" variant="ghost" color="error" :loading="busy === 'declined'" @click="setStatus('declined')">Mark declined</UButton>
-        <UButton v-if="quote.status !== 'declined'" icon="i-lucide-arrow-right-left" :loading="busy === 'convert'" @click="convert">Convert to invoice</UButton>
-      </template>
-      <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
-      <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
-      <UButton v-if="isAdmin" variant="ghost" color="error" icon="i-lucide-trash" :loading="busy === 'delete'" @click="remove">Delete</UButton>
-    </div>
 
     <UCard v-if="quote">
       <p class="text-xs uppercase tracking-wide text-dimmed mb-1">Prepared for</p>

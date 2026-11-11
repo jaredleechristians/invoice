@@ -39,15 +39,15 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Estimates you can send and convert into invoices.">
+      <template #filters>
+        <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
+        <div class="w-44">
+          <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: statusLabel(s), value: s }))" />
+        </div>
+      </template>
       <UButton to="/dashboard/quotes/new" icon="i-lucide-plus">New quote</UButton>
     </PageHeader>
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
-    <div class="flex flex-wrap gap-2">
-      <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
-      <div class="w-44">
-        <AppSelect v-model="status" placeholder="All statuses" :options="['draft', 'sent', 'accepted', 'declined', 'converted', 'expired'].map((s) => ({ label: statusLabel(s), value: s }))" />
-      </div>
-    </div>
     <UTable
       :data="filtered"
       :columns="[

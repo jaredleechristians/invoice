@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * Declares the page's navbar title override, info tooltip and action buttons.
- * Renders nothing in place: actions (default slot) are teleported into the
- * dashboard navbar, so the page title is only shown once.
+ * Declares the page's navbar title override and info tooltip (shown in the
+ * dashboard top bar) and renders the page toolbar in place: filters on the
+ * left (#filters slot), page actions right-aligned (default slot). The page
+ * title lives only in the top bar, never repeated in the page.
  */
 const props = defineProps<{ title?: string; info?: string }>();
 const header = usePageHeader();
@@ -13,12 +14,17 @@ watchEffect(() => {
 });
 onBeforeUnmount(() => {
   // Only clear if a newer page hasn't already claimed the header.
-  if (header.value.owner === owner) header.value = { title: "", info: "", owner: 0 };
+  if (header.value?.owner === owner) header.value = { title: "", info: "", owner: 0 };
 });
 </script>
 
 <template>
-  <Teleport v-if="$slots.default" defer to="#dashboard-navbar-actions">
-    <slot />
-  </Teleport>
+  <div v-if="$slots.default || $slots.filters" class="flex flex-wrap items-center gap-2">
+    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <slot name="filters" />
+    </div>
+    <div v-if="$slots.default" class="flex flex-wrap items-center justify-end gap-2">
+      <slot />
+    </div>
+  </div>
 </template>

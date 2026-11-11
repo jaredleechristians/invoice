@@ -56,9 +56,9 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Figures are per currency — ZAR and USD are never added together.">
-      <UButton to="/dashboard/invoices/new" icon="i-lucide-plus" class="hidden sm:inline-flex">Invoice</UButton>
-      <UButton to="/dashboard/quotes/new" variant="soft" icon="i-lucide-plus" class="hidden md:inline-flex">Quote</UButton>
-      <UButton to="/dashboard/expenses" variant="soft" icon="i-lucide-plus" class="hidden md:inline-flex">Expense</UButton>
+      <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">Invoice</UButton>
+      <UButton to="/dashboard/quotes/new" variant="soft" icon="i-lucide-plus">Quote</UButton>
+      <UButton to="/dashboard/expenses" variant="soft" icon="i-lucide-plus">Expense</UButton>
     </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />

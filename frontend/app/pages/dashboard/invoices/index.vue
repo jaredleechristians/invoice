@@ -59,17 +59,16 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Drafts get a number when you finalize them.">
+      <template #filters>
+        <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
+        <div class="w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>
+        <div class="w-32"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
+        <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" aria-label="Refresh" @click="load" />
+      </template>
       <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">New invoice</UButton>
     </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
-
-    <div class="flex flex-wrap gap-2">
-      <UInput v-model="q" placeholder="Search number or customer" class="min-w-56" icon="i-lucide-search" />
-      <div class="w-44"><AppSelect v-model="status" placeholder="All statuses" :options="[{ label: statusLabel('open'), value: 'open' }, ...STATUS_OPTIONS]" /></div>
-      <div class="w-32"><AppSelect v-model="currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
-      <UButton variant="ghost" color="neutral" icon="i-lucide-refresh-cw" :loading="loading" @click="load" />
-    </div>
 
     <UTable
       :data="filtered"

@@ -213,6 +213,11 @@ watch(activeCompanyId, load, { immediate: true });
 <template>
   <div class="space-y-6">
     <PageHeader info="Money out. Amounts stay in the currency you paid in.">
+      <template #filters>
+        <DatePicker v-model="filterRange" range :presets="DATE_PRESETS" clearable placeholder="All dates" />
+        <div class="w-48"><AppSelect v-model="filters.categoryId" searchable placeholder="All categories" :options="categories.map((c) => ({ label: c.name, value: c.id }))" /></div>
+        <div class="w-36"><AppSelect v-model="filters.currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
+      </template>
       <UButton variant="soft" color="neutral" icon="i-lucide-tags" @click="showCategories = true">Categories</UButton>
       <UButton icon="i-lucide-plus" @click="openNew">Add expense</UButton>
     </PageHeader>
@@ -298,9 +303,6 @@ watch(activeCompanyId, load, { immediate: true });
     </USlideover>
 
     <div class="flex flex-wrap items-center gap-2">
-      <DatePicker v-model="filterRange" range :presets="DATE_PRESETS" clearable placeholder="All dates" />
-      <div class="w-48"><AppSelect v-model="filters.categoryId" searchable placeholder="All categories" :options="categories.map((c) => ({ label: c.name, value: c.id }))" /></div>
-      <div class="w-36"><AppSelect v-model="filters.currency" placeholder="All currencies" :options="currencies.map((c) => ({ label: c, value: c }))" /></div>
       <div class="ml-auto text-right">
         <p class="text-xs text-dimmed">Total shown</p>
         <MoneyList :value="totals" size="sm" />

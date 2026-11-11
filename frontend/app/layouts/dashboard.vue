@@ -216,9 +216,7 @@ watch(() => company.value?.name, (name) => {
             </UTooltip>
           </template>
           <template #right>
-            <div id="dashboard-navbar-actions" class="flex items-center gap-2" />
             <TenantAssistant />
-            <UColorModeButton />
           </template>
         </UDashboardNavbar>
       </template>
