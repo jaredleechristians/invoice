@@ -32,17 +32,27 @@ export function useAuth() {
     await signInWithPopup($firebaseAuth, provider);
   }
 
-  /** Forget everything tied to the previous user (company, tenant, page state). */
+  /**
+   * Forget everything tied to the previous user (company, tenant, page state).
+   * States are reset to their defaults rather than cleared to `undefined`, so
+   * mounted components reading them (layout navbar, PageHeader) never crash.
+   */
   function clearSessionData() {
-    clearNuxtState(["active-company", "active-company-loading", "active-company-id", "page-header"]);
+    useState("active-company").value = null;
+    useState("active-company-loading").value = false;
+    useState("active-company-id").value = null;
+    useState("page-header").value = { title: "", info: "", owner: 0 };
     if (import.meta.client) localStorage.removeItem("activeCompanyId");
   }
 
   async function logout() {
-    if ($firebaseAuth) await signOut($firebaseAuth);
-    user.value = null;
-    clearSessionData();
-    await navigateTo("/dashboard/login", { replace: true });
+    try {
+      if ($firebaseAuth) await signOut($firebaseAuth);
+    } finally {
+      user.value = null;
+      await navigateTo("/dashboard/login", { replace: true });
+      clearSessionData();
+    }
   }
 
   async function idToken() {
