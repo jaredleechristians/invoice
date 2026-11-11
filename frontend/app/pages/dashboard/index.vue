@@ -1,104 +1,131 @@
 <script setup lang="ts">
+import { formatCurrency, formatDate, STATUS_COLORS, statusLabel } from "~/utils/money";
+
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
-const { user } = useAuth();
-const { activeCompanyId, apiFetch } = useTenantApi();
-
-type Receivable = {
-  customerId: string;
-  customerName: string;
-  outstanding: number;
-  invoiceCount: number;
+type Summary = {
+  today: string;
+  month: { from: string; to: string };
+  outstanding: Record<string, number>;
+  overdue: Record<string, number>;
+  openCount: number;
+  overdueCount: number;
+  draftCount: number;
+  incomeThisMonth: Record<string, number>;
+  expensesThisMonth: Record<string, number>;
+  recentInvoices: { id: string; invoiceNumber: string; customerName: string; currency: string; total: number; outstanding: number; status: string }[];
+  topOverdue: { id: string; invoiceNumber: string; customerName: string; currency: string; outstanding: number; daysOverdue: number }[];
 };
 
-const stats = ref({
-  customers: 0,
-  invoices: 0,
-  unpaid: 0,
-});
-const receivables = ref<Receivable[]>([]);
+const { user } = useAuth();
+const { activeCompanyId, capi } = useCompanyApi();
+const { company } = useCompany();
+
+const summary = ref<Summary | null>(null);
 const loading = ref(false);
+const error = ref("");
 
-function formatZar(n: number) {
-  return `R ${Number(n).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-async function loadStats() {
+async function load() {
   if (!activeCompanyId.value) return;
   loading.value = true;
+  error.value = "";
   try {
-    const [customers, invoices, recv] = await Promise.all([
-      apiFetch<{ customers: unknown[] }>(`/companies/${activeCompanyId.value}/customers`),
-      apiFetch<{ invoices: { status: string }[] }>(
-        `/companies/${activeCompanyId.value}/invoices`
-      ),
-      apiFetch<{ receivables: Receivable[] }>(
-        `/companies/${activeCompanyId.value}/receivables`
-      ),
-    ]);
-    stats.value = {
-      customers: customers.customers.length,
-      invoices: invoices.invoices.length,
-      unpaid: invoices.invoices.filter((i) =>
-        ["unpaid", "partially_paid", "overdue"].includes(i.status)
-      ).length,
-    };
-    receivables.value = recv.receivables.slice(0, 8);
+    summary.value = await capi<Summary>("/summary");
+  } catch (e) {
+    error.value = errMsg(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(activeCompanyId, () => loadStats(), { immediate: true });
+const netThisMonth = computed(() => {
+  const out: Record<string, number> = {};
+  const s = summary.value;
+  if (!s) return out;
+  for (const c of new Set([...Object.keys(s.incomeThisMonth), ...Object.keys(s.expensesThisMonth)])) {
+    out[c] = Math.round(((s.incomeThisMonth[c] || 0) - (s.expensesThisMonth[c] || 0)) * 100) / 100;
+  }
+  return out;
+});
+
+const needsSetup = computed(() => company.value && !company.value.bankAccounts?.length);
+
+watch(activeCompanyId, load, { immediate: true });
 </script>
 
 <template>
   <div class="space-y-6">
-    <div>
-      <h1 class="text-2xl font-semibold">Dashboard</h1>
-      <p class="text-neutral-400 mt-1">
-        Signed-in workspace for customers, invoices, payments, and statements.
-      </p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold">{{ company?.name || "Dashboard" }}</h1>
+        <p class="text-neutral-400 text-sm mt-1">Figures are per currency — ZAR and USD are never added together.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <UButton to="/dashboard/invoices/new" icon="i-lucide-plus">Invoice</UButton>
+        <UButton to="/dashboard/quotes/new" variant="soft" icon="i-lucide-plus">Quote</UButton>
+        <UButton to="/dashboard/expenses" variant="soft" icon="i-lucide-plus">Expense</UButton>
+      </div>
     </div>
 
-    <div v-if="user && activeCompanyId" class="grid gap-4 sm:grid-cols-3">
+    <UAlert v-if="error" color="error" variant="subtle" :title="error" />
+    <UAlert v-if="needsSetup" color="info" variant="subtle" title="Add your logo, address and bank details so they appear on invoices.">
+      <template #description><NuxtLink to="/dashboard/settings" class="underline">Open settings</NuxtLink></template>
+    </UAlert>
+
+    <div v-if="user && summary" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <UCard>
-        <p class="text-sm text-neutral-400">Customers</p>
-        <p class="text-3xl font-semibold mt-1">{{ stats.customers }}</p>
+        <p class="text-sm text-neutral-400">Outstanding <span class="text-neutral-500">({{ summary.openCount }})</span></p>
+        <MoneyList :value="summary.outstanding" empty="Nothing owed" />
+        <NuxtLink to="/dashboard/invoices?status=open" class="text-xs text-neutral-500 underline">View</NuxtLink>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Invoices</p>
-        <p class="text-3xl font-semibold mt-1">{{ stats.invoices }}</p>
+        <p class="text-sm text-neutral-400">Overdue <span class="text-neutral-500">({{ summary.overdueCount }})</span></p>
+        <MoneyList :value="summary.overdue" empty="None" class="text-red-400" />
+        <NuxtLink to="/dashboard/invoices?status=overdue" class="text-xs text-neutral-500 underline">View</NuxtLink>
       </UCard>
       <UCard>
-        <p class="text-sm text-neutral-400">Open invoices</p>
-        <p class="text-3xl font-semibold mt-1">{{ stats.unpaid }}</p>
+        <p class="text-sm text-neutral-400">Income this month</p>
+        <MoneyList :value="summary.incomeThisMonth" empty="None yet" />
+        <p class="text-xs text-neutral-500">Payments received since {{ formatDate(summary.month.from) }}</p>
+      </UCard>
+      <UCard>
+        <p class="text-sm text-neutral-400">Expenses this month</p>
+        <MoneyList :value="summary.expensesThisMonth" empty="None yet" />
+        <p class="text-xs text-neutral-500">Net: <span v-for="(v, c) in netThisMonth" :key="c" class="mr-2 tabular-nums">{{ formatCurrency(v, String(c)) }}</span></p>
       </UCard>
     </div>
+    <div v-else-if="loading" class="text-neutral-500 text-sm">Loading…</div>
 
-    <div v-if="loading" class="text-neutral-500 text-sm">Loading…</div>
-
-    <UCard v-if="receivables.length">
-      <template #header>
-        <span class="font-medium">Who owes money</span>
-      </template>
-      <ul class="space-y-2 text-sm">
-        <li
-          v-for="row in receivables"
-          :key="row.customerId || row.customerName"
-          class="flex justify-between gap-3"
-        >
-          <span>{{ row.customerName }}</span>
-          <span class="tabular-nums font-medium">{{ formatZar(row.outstanding) }}</span>
-        </li>
-      </ul>
-    </UCard>
-
-    <div class="flex flex-wrap gap-2">
-      <UButton to="/" variant="outline" color="neutral">Open anonymous editor</UButton>
-      <UButton v-if="activeCompanyId" to="/dashboard/customers" variant="soft">Customers</UButton>
-      <UButton v-if="activeCompanyId" to="/dashboard/invoices" variant="soft">Invoices</UButton>
-      <UButton v-if="activeCompanyId" to="/dashboard/import" variant="soft">Import local invoice</UButton>
+    <div v-if="summary" class="grid gap-4 lg:grid-cols-2">
+      <UCard>
+        <template #header><span class="font-medium">Overdue invoices</span></template>
+        <ul v-if="summary.topOverdue.length" class="divide-y divide-neutral-800 text-sm">
+          <li v-for="i in summary.topOverdue" :key="i.id">
+            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between gap-3 py-2 hover:text-white">
+              <span>{{ i.invoiceNumber }} · {{ i.customerName }} <span class="text-red-400 text-xs">{{ i.daysOverdue }}d</span></span>
+              <span class="tabular-nums">{{ formatCurrency(i.outstanding, i.currency) }}</span>
+            </NuxtLink>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-neutral-500">Nothing overdue. 🎉</p>
+      </UCard>
+      <UCard>
+        <template #header>
+          <div class="flex justify-between"><span class="font-medium">Recent invoices</span><span v-if="summary.draftCount" class="text-xs text-neutral-500">{{ summary.draftCount }} draft(s)</span></div>
+        </template>
+        <ul v-if="summary.recentInvoices.length" class="divide-y divide-neutral-800 text-sm">
+          <li v-for="i in summary.recentInvoices" :key="i.id">
+            <NuxtLink :to="`/dashboard/invoices/${i.id}`" class="flex justify-between items-center gap-3 py-2 hover:text-white">
+              <span>{{ i.invoiceNumber || "Draft" }} · {{ i.customerName || "—" }}</span>
+              <span class="flex items-center gap-2">
+                <span class="tabular-nums">{{ formatCurrency(i.total, i.currency) }}</span>
+                <UBadge size="sm" :color="STATUS_COLORS[i.status] || 'neutral'" variant="subtle">{{ statusLabel(i.status) }}</UBadge>
+              </span>
+            </NuxtLink>
+          </li>
+        </ul>
+        <p v-else class="text-sm text-neutral-500">No invoices yet. <NuxtLink to="/dashboard/invoices/new" class="underline">Create one</NuxtLink> or <NuxtLink to="/dashboard/import" class="underline">import from the editor</NuxtLink>.</p>
+      </UCard>
     </div>
   </div>
 </template>
