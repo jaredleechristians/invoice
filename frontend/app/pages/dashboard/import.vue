@@ -69,7 +69,6 @@ watch([activeCompanyId, () => user.value?.uid, ready], () => loadPreview());
         <UButton :loading="importing" :disabled="!activeCompanyId" @click="importToCompany">
           Import to company
         </UButton>
-        <UButton to="/" variant="ghost" color="neutral">Edit locally</UButton>
       </div>
     </UCard>
 

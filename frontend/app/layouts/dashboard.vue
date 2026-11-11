@@ -64,7 +64,6 @@ const companyItems = computed<DropdownMenuItem[][]>(() => [
 const userItems = computed<DropdownMenuItem[][]>(() => [
   [{ type: "label" as const, label: user.value?.displayName || "Signed in", description: user.value?.email || "" }],
   [
-    { label: "Anonymous editor", icon: "i-lucide-file-pen", to: "/" },
     {
       label: colorMode.value === "dark" ? "Light mode" : "Dark mode",
       icon: colorMode.value === "dark" ? "i-lucide-sun" : "i-lucide-moon",

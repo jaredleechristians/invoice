@@ -118,7 +118,7 @@ watch(activeCompanyId, load, { immediate: true });
             </NuxtLink>
           </li>
         </ul>
-        <p v-else class="text-sm text-dimmed">No invoices yet. <NuxtLink to="/dashboard/invoices/new" class="underline">Create one</NuxtLink> or <NuxtLink to="/dashboard/import" class="underline">import from the editor</NuxtLink>.</p>
+        <p v-else class="text-sm text-dimmed">No invoices yet. <NuxtLink to="/dashboard/invoices/new" class="underline">Create one</NuxtLink>.</p>
       </UCard>
     </div>
   </div>
