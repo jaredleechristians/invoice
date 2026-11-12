@@ -61,16 +61,6 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "date",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "journals",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
           "fieldPath": "source.type",
           "order": "ASCENDING"
         },
