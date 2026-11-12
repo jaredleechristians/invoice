@@ -12,7 +12,10 @@ const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate } = require("./dates");
 const crypto = require("crypto");
-const { ensureChart } = require("./ledger/accounts");
+const { ensureChart, bankLedgerId } = require("./ledger/accounts");
+const { bankOpeningLines } = require("./ledger/rules");
+const { planBankEntry, planBankReverse } = require("./ledger/bankPost");
+const { ensureGoLiveDate, systemAccountsOf, baseCurrencyOf } = require("./ledger/post");
 
 // Stable keys, stored on the account. South African banks (SARB register of
 // locally controlled, foreign controlled and mutual banks, plus common
@@ -100,6 +103,9 @@ function normalizeAccount(body, company, existing = {}) {
     showOnInvoices: merged.showOnInvoices === undefined ? true : Boolean(merged.showOnInvoices),
     openingBalance: roundMoney(merged.openingBalance || 0),
     openingDate: toIsoDate(merged.openingDate) || "",
+    openingRate: merged.openingRate !== undefined && merged.openingRate !== "" && merged.openingRate !== null
+      ? Number(merged.openingRate)
+      : (existing.openingRate ?? null),
   };
 }
 
@@ -242,6 +248,70 @@ async function getAccount(companyId, accountId) {
   return { id: snap.id, showOnInvoices: true, ...data, bank: normalizeBank(data.bank) };
 }
 
+
+async function syncBankOpening(companyId, uid, account, previous = null) {
+  const opening = roundMoney(account.openingBalance || 0);
+  const prevOpening = previous ? roundMoney(previous.openingBalance || 0) : 0;
+  const date = toIsoDate(account.openingDate) || (await ensureGoLiveDate(companyId));
+  const prevDate = previous ? (toIsoDate(previous.openingDate) || "") : "";
+  const rate = account.openingRate;
+  const prevRate = previous ? previous.openingRate : null;
+  const unchanged = previous && opening === prevOpening && date === prevDate && rate === prevRate;
+  if (unchanged) return account;
+  if (!opening && !previous?.ledger?.entryId) return account;
+
+  const snap = await companyRef(getDb(), companyId).get();
+  const company = snap.exists ? snap.data() : {};
+  const ctx = { baseCurrency: baseCurrencyOf(company), systemAccounts: systemAccountsOf(company) };
+  const lines = opening
+    ? bankOpeningLines({
+        bankLedgerAccountId: bankLedgerId(account.id),
+        bankAccountId: account.id,
+        currency: account.currency || ctx.baseCurrency,
+        openingBalance: opening,
+        rate: account.openingRate,
+        systemAccounts: ctx.systemAccounts,
+        baseCurrency: ctx.baseCurrency,
+        description: `${account.name} opening balance`,
+      })
+    : [];
+  const currentLedger = account.ledger || previous?.ledger || null;
+  const db = getDb();
+  let ledger = currentLedger;
+  await db.runTransaction(async (tx) => {
+    let reverse = { commit() {} };
+    if (currentLedger?.entryId) {
+      reverse = await planBankReverse(tx, companyId, {
+        entryId: currentLedger.entryId,
+        date: prevDate || date,
+        event: "edit",
+        createdBy: uid,
+      });
+    }
+    let post = { commit() {}, ledger: { entryId: null, version: Number(currentLedger?.version) || 0 } };
+    if (lines.length) {
+      post = await planBankEntry(tx, companyId, {
+        type: "bank_opening",
+        id: account.id,
+        date,
+        lines,
+        event: currentLedger?.entryId ? "edit" : "post",
+        createdBy: uid,
+        memo: `${account.name} opening balance`,
+        number: account.name,
+        currentLedger,
+        ctx,
+      });
+    }
+    ledger = post.ledger;
+    tx.set(accountsCol(companyId).doc(account.id), { ledger }, { merge: true });
+    reverse.commit(tx);
+    post.commit(tx);
+  });
+  await ensureGoLiveDate(companyId, date);
+  return { ...account, ledger };
+}
+
 async function createAccount(companyId, uid, email, role, body = {}) {
   assertCan(canManageSettings, role);
   const company = await loadCompanyData(companyId);
@@ -251,8 +321,10 @@ async function createAccount(companyId, uid, email, role, body = {}) {
   const doc = { ...data, createdAt: now, updatedAt: now, createdBy: uid };
   await accountsCol(companyId).doc(id).set(doc);
   await ensureChart(companyId, { linkBanks: true });
+  const saved = { id, ...doc };
+  const withLedger = await syncBankOpening(companyId, uid, saved, null);
   await logAudit({ companyId, uid, email, action: "bankAccount.create", payload: { id, name: data.name, currency: data.currency } });
-  return { id, ...doc };
+  return withLedger;
 }
 
 async function updateAccount(companyId, uid, email, role, accountId, body = {}) {
@@ -267,8 +339,10 @@ async function updateAccount(companyId, uid, email, role, accountId, body = {}) 
   const patch = { ...data, updatedAt: new Date().toISOString() };
   await accountsCol(companyId).doc(accountId).set(patch, { merge: true });
   await ensureChart(companyId, { linkBanks: true });
+  const saved = { ...existing, ...patch };
+  const withLedger = await syncBankOpening(companyId, uid, saved, existing);
   await logAudit({ companyId, uid, email, action: "bankAccount.update", payload: { id: accountId } });
-  return { ...existing, ...patch };
+  return withLedger;
 }
 
 async function deleteAccount(companyId, uid, email, role, accountId) {

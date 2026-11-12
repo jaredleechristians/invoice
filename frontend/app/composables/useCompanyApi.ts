@@ -19,6 +19,10 @@ export function useCompanyApi() {
     return capi<T>(path, { method: "PATCH", body: JSON.stringify(body) });
   }
 
+  function cput<T>(path: string, body: unknown = {}) {
+    return capi<T>(path, { method: "PUT", body: JSON.stringify(body) });
+  }
+
   function cdelete<T>(path: string) {
     return capi<T>(path, { method: "DELETE" });
   }
@@ -35,7 +39,7 @@ export function useCompanyApi() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  return { activeCompanyId, capi, cpost, cpatch, cdelete, cdownload, copen };
+  return { activeCompanyId, capi, cpost, cpatch, cput, cdelete, cdownload, copen };
 }
 
 export function errMsg(e: unknown, fallback = "Something went wrong") {
