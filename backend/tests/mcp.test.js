@@ -79,6 +79,10 @@ test("read key: read tools only, real data", async () => {
   const company = json(await client.callTool({ name: "get_company", arguments: {} }));
   assert.equal(company.id, co);
   assert.equal(company.bankAccounts, undefined);
+  assert.equal(company.baseCurrency, "ZAR");
+  const chart = json(await client.callTool({ name: "list_accounts", arguments: { type: "liability" } }));
+  assert.ok(chart.items.some((a) => a.systemKey === "vat" && a.code === "2100"));
+  assert.ok(chart.items.every((a) => a.type === "liability"));
   for (const [name, args] of [
     ["get_reports", { from: "2026-01-01", to: "2026-12-31" }], ["list_expenses", {}], ["list_expense_categories", {}], ["list_payments", {}],
     ["list_bank_accounts", {}], ["list_quotes", {}], ["list_products", {}], ["list_bank_transactions", { status: "unreconciled" }], ["list_customers", {}],

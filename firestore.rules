@@ -60,6 +60,18 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Ledger (Phase 1): chart of accounts and journal entries. Members
+      // read; only the server writes (owners/admins manage accounts through
+      // the API; journals are posted by the server and never edited).
+      match /accounts/{accountId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+      match /journals/{entryId} {
+        allow read: if isMember(companyId);
+        allow write: if false;
+      }
+
       // Business records (customers, products, invoices, quotes, payments,
       // expenses, expenseCategories, expenseReceipts, counters, …):
       // readable by members, written only by the server.

@@ -9,6 +9,7 @@ const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso, inRange } = require("./dates");
 const { releaseTransaction } = require("./bankLinks");
+const { resolveExpenseAccount, defaultExpenseAccountId } = require("./ledger/accounts");
 
 // Receipts are stored in Firestore (separate doc) to avoid new infra; keep them small.
 const MAX_RECEIPT_BYTES = 700 * 1024;
@@ -40,10 +41,12 @@ async function listCategories(companyId, { seed = true } = {}) {
     const db = getDb();
     const batch = db.batch();
     const now = new Date().toISOString();
-    rows = DEFAULT_CATEGORIES.map((name) => ({ id: randomId(8), name, createdAt: now }));
-    for (const r of rows) batch.set(categoriesCol(companyId).doc(r.id), { name: r.name, createdAt: now });
+    rows = DEFAULT_CATEGORIES.map((name) => ({ id: randomId(8), name, accountId: defaultExpenseAccountId(name), createdAt: now }));
+    for (const r of rows) batch.set(categoriesCol(companyId).doc(r.id), { name: r.name, accountId: r.accountId, createdAt: now });
     await batch.commit();
   }
+  // Categories from before 1.4.0 have no account yet: show the template default.
+  rows = rows.map((c) => ({ ...c, accountId: c.accountId || defaultExpenseAccountId(c.name) }));
   return rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
@@ -59,7 +62,8 @@ async function createCategory(companyId, uid, email, role, body = {}) {
   const existing = await listCategories(companyId, { seed: false });
   if (existing.some((c) => c.name.toLowerCase() === name.toLowerCase())) throw httpError(409, "Category already exists");
   const id = randomId(8);
-  const doc = { name, createdAt: new Date().toISOString() };
+  const accountId = await resolveExpenseAccount(companyId, String(body.accountId || ""), name);
+  const doc = { name, accountId, createdAt: new Date().toISOString() };
   await categoriesCol(companyId).doc(id).set(doc);
   await logAudit({ companyId, uid, email, action: "expenseCategory.create", payload: { id, name } });
   return { id, ...doc };
@@ -67,11 +71,18 @@ async function createCategory(companyId, uid, email, role, body = {}) {
 
 async function updateCategory(companyId, uid, email, role, categoryId, body = {}) {
   assertCan(canManageSettings, role);
-  const name = cleanCategoryName(body.name);
   const ref = categoriesCol(companyId).doc(categoryId);
   const snap = await ref.get();
   if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Category not found");
-  await ref.set({ name, updatedAt: new Date().toISOString() }, { merge: true });
+  const prev = snap.data();
+  const name = body.name !== undefined ? cleanCategoryName(body.name) : prev.name;
+  const patch = { name, updatedAt: new Date().toISOString() };
+  if (body.accountId !== undefined || !prev.accountId) {
+    patch.accountId = await resolveExpenseAccount(companyId, String(body.accountId || prev.accountId || ""), name);
+  }
+  await ref.set(patch, { merge: true });
+  await logAudit({ companyId, uid, email, action: "expenseCategory.update", payload: { id: categoryId, ...patch } });
+  if (name === prev.name) return { id: categoryId, ...prev, ...patch };
   // Keep the denormalised name on expenses in sync.
   const used = await fetchAll(expensesCol(companyId).where("categoryId", "==", categoryId));
   const db = getDb();
@@ -80,8 +91,7 @@ async function updateCategory(companyId, uid, email, role, categoryId, body = {}
     for (const e of used.slice(i, i + 400)) batch.set(expensesCol(companyId).doc(e.id), { categoryName: name }, { merge: true });
     await batch.commit();
   }
-  await logAudit({ companyId, uid, email, action: "expenseCategory.update", payload: { id: categoryId, name } });
-  return { id: categoryId, ...snap.data(), name };
+  return { id: categoryId, ...prev, ...patch };
 }
 
 async function deleteCategory(companyId, uid, email, role, categoryId) {

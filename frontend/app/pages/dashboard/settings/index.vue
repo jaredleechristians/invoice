@@ -92,6 +92,7 @@ async function save() {
       quotePrefix: f.quotePrefix,
       quoteNextNumber: Number(f.quoteNextNumber),
       defaultCurrency: f.defaultCurrency,
+      baseCurrency: f.baseCurrency || "ZAR",
       currencies: f.currencies,
       paymentTermsDays: Number(f.paymentTermsDays),
       quoteValidDays: Number(f.quoteValidDays),
@@ -113,6 +114,7 @@ async function save() {
 <template>
   <div class="mx-auto w-full max-w-4xl space-y-6">
     <PageHeader title="Company settings" info="Shown on invoices and quotes. Published invoices keep the details they were issued with.">
+      <UButton to="/dashboard/settings/accounts" variant="soft" icon="i-lucide-book-open">Chart of accounts</UButton>
       <UButton to="/dashboard/settings/members" variant="soft" icon="i-lucide-users">Members</UButton>
     </PageHeader>
 
@@ -167,6 +169,22 @@ async function save() {
               </UFormField>
             </template>
             <p v-else class="text-sm text-dimmed sm:col-span-3">Not VAT registered: invoices show a plain total with no VAT line.</p>
+          </div>
+        </UCard>
+
+        <UCard>
+          <template #header><span class="font-medium">Accounting</span></template>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <UFormField
+              label="Base currency"
+              :help="form.baseCurrencyLocked ? 'Locked: the ledger already has entries.' : 'The currency your books are kept in. Other currencies convert to it. Locks once the ledger has entries.'"
+            >
+              <AppSelect v-model="form.baseCurrency" :disabled="form.baseCurrencyLocked" :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
+            </UFormField>
+            <p class="text-sm text-dimmed sm:col-span-2 sm:pt-6">
+              Separate from the default currency for new invoices.
+              <ULink to="/dashboard/settings/accounts" class="text-primary">Chart of accounts</ULink>
+            </p>
           </div>
         </UCard>
 

@@ -22,6 +22,7 @@ const { runTenantChat } = require("../lib/tenantChat");
 const assistantActions = require("../lib/assistantActions");
 const bankAccounts = require("../lib/bankAccounts");
 const bank = require("../lib/bankTransactions");
+const ledgerAccounts = require("../lib/ledger/accounts");
 
 const router = express.Router();
 
@@ -221,6 +222,18 @@ company.post("/bank-accounts/migrate", h(async (req) => {
 company.post("/bank-accounts", h((req) => bankAccounts.createAccount(...actor(req), req.body || {}), 201));
 company.patch("/bank-accounts/:accountId", h((req) => bankAccounts.updateAccount(...actor(req), req.params.accountId, req.body || {})));
 company.delete("/bank-accounts/:accountId", h((req) => bankAccounts.deleteAccount(...actor(req), req.params.accountId)));
+
+// ---------- chart of accounts (ledger) ----------
+
+company.get("/accounts", h(async (req) => ({
+  accounts: await ledgerAccounts.listLedgerAccounts(req.companyId, { includeArchived: req.query.active !== "1" }),
+  types: ledgerAccounts.TYPES.map((t) => ({ value: t, label: ledgerAccounts.TYPE_LABELS[t], subtypes: ledgerAccounts.SUBTYPES[t].filter((s) => !ledgerAccounts.RESERVED_SUBTYPES.includes(s)) })),
+})));
+company.get("/accounts/:accountId", h((req) => ledgerAccounts.getLedgerAccount(req.companyId, req.params.accountId)));
+company.post("/accounts", h((req) => ledgerAccounts.createLedgerAccount(...actor(req), req.body || {}), 201));
+company.patch("/accounts/:accountId", h((req) => ledgerAccounts.updateLedgerAccount(...actor(req), req.params.accountId, req.body || {})));
+company.post("/accounts/:accountId/archive", h((req) => ledgerAccounts.archiveLedgerAccount(...actor(req), req.params.accountId)));
+company.post("/accounts/:accountId/unarchive", h((req) => ledgerAccounts.unarchiveLedgerAccount(...actor(req), req.params.accountId)));
 
 company.get("/bank-imports", h(async (req) => ({ imports: await bank.listImports(req.companyId, { accountId: req.query.accountId }) })));
 company.post("/bank-imports/preview", h((req) => bank.previewImport(...actor(req), req.body || {})));

@@ -21,6 +21,7 @@ const expenses = require("./expenses");
 const reports = require("./reports");
 const bankAccounts = require("./bankAccounts");
 const bank = require("./bankTransactions");
+const ledgerAccounts = require("./ledger/accounts");
 const { buildStatement } = require("./statements");
 const { listReceivables } = require("./receivables");
 const { canWriteRecords } = require("./permissions");
@@ -83,9 +84,17 @@ function buildMcpServer(ctx) {
 
   // ---------- read ----------
 
-  read("get_company", "Company basics: name, currencies, VAT, tax year end, payment terms.", {}, async () => {
+  read("get_company", "Company basics: name, currencies (incl. ledger base currency), VAT, tax year end, payment terms.", {}, async () => {
     const c = await companies.getCompany(ctx.companyId);
-    return pick(c, ["id", "name", "legalName", "defaultCurrency", "currencies", "vatRegistered", "vatRate", "taxYearEndMonth", "paymentTermsDays", "invoicePrefix", "quotePrefix"]);
+    return pick(c, ["id", "name", "legalName", "defaultCurrency", "baseCurrency", "currencies", "vatRegistered", "vatRate", "taxYearEndMonth", "paymentTermsDays", "invoicePrefix", "quotePrefix"]);
+  });
+
+  read("list_accounts", "Chart of accounts (ledger): code, name, type (asset, liability, equity, income, expense), system and bank accounts. Read only; nothing posts to the ledger yet.", {
+    type: z.enum(["asset", "liability", "equity", "income", "expense"]).optional(), includeArchived: z.boolean().optional(), ...PAGE,
+  }, async (a) => {
+    let rows = await ledgerAccounts.listLedgerAccounts(ctx.companyId, { includeArchived: Boolean(a.includeArchived) });
+    if (a.type) rows = rows.filter((r) => r.type === a.type);
+    return page(rows.map((r) => pick(r, ["id", "code", "name", "type", "subtype", "systemKey", "bankAccountId", "currency", "active"])), { limit: 100, ...a });
   });
 
   read("list_customers", "Customers, optionally filtered by name or email.", { q: z.string().max(100).optional(), ...PAGE }, async (a) => {
@@ -120,7 +129,7 @@ function buildMcpServer(ctx) {
 
   read("list_products", "Products and services with prices.", { ...PAGE }, async (a) => {
     const rows = await products.listProducts(ctx.companyId);
-    return page(rows.map((x) => pick(x, ["id", "name", "kind", "unitPrice", "currency", "active"])), a);
+    return page(rows.map((x) => pick(x, ["id", "name", "kind", "unitPrice", "currency", "active", "incomeAccountId"])), a);
   });
 
   read("get_invoice", "One invoice with its lines and totals.", { invoiceId: ID }, async (a) => {
@@ -152,7 +161,7 @@ function buildMcpServer(ctx) {
 
   read("list_expense_categories", "Expense categories (ids for record_expense).", {}, async () => {
     const rows = await expenses.listCategories(ctx.companyId);
-    return rows.map((c) => pick(c, ["id", "name"]));
+    return rows.map((c) => pick(c, ["id", "name", "accountId"]));
   });
 
   read("list_payments", "Payments received, newest first.", { invoiceId: ID.optional(), ...PAGE }, async (a) => {

@@ -3,7 +3,8 @@ import { formatCurrency } from "~/utils/money";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
-type Product = { id: string; name: string; description: string; unitPrice: number; currency: string; kind: string; taxable: boolean; active: boolean };
+type Product = { id: string; name: string; description: string; unitPrice: number; currency: string; kind: string; taxable: boolean; active: boolean; incomeAccountId: string };
+type LedgerAccount = { id: string; code: string; name: string; type: string; active: boolean };
 
 const { activeCompanyId, capi, cpost, cpatch, cdelete } = useCompanyApi();
 const { currencies, isAdmin, company, ensure } = useCompany();
@@ -13,7 +14,13 @@ const error = ref("");
 const saving = ref(false);
 const editingId = ref("");
 const showInactive = ref(false);
-const blank = () => ({ name: "", description: "", unitPrice: "0", currency: "", kind: "service", taxable: true, active: true });
+const blank = () => ({ name: "", description: "", unitPrice: "0", currency: "", kind: "service", taxable: true, active: true, incomeAccountId: "" });
+const incomeAccounts = ref<LedgerAccount[]>([]);
+const incomeOptions = computed(() => incomeAccounts.value.filter((a) => a.active || a.id === form.incomeAccountId).map((a) => ({ label: `${a.code} ${a.name}`, value: a.id })));
+const accountLabel = (id: string) => {
+  const a = incomeAccounts.value.find((x) => x.id === id);
+  return a ? `${a.code} ${a.name}` : "";
+};
 const form = reactive(blank());
 const formOpen = ref(false);
 const formError = ref("");
@@ -28,7 +35,12 @@ async function load() {
   if (!activeCompanyId.value) return;
   try {
     await ensure();
-    products.value = (await capi<{ products: Product[] }>(`/products${showInactive.value ? "?all=1" : ""}`)).products;
+    const [p, a] = await Promise.all([
+      capi<{ products: Product[] }>(`/products${showInactive.value ? "?all=1" : ""}`),
+      capi<{ accounts: LedgerAccount[] }>("/accounts").catch(() => ({ accounts: [] as LedgerAccount[] })),
+    ]);
+    products.value = p.products;
+    incomeAccounts.value = a.accounts.filter((x) => x.type === "income");
   } catch (e) {
     error.value = errMsg(e);
   }
@@ -102,9 +114,14 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
             </UFormField>
           </div>
           <UFormField label="Description (copied to line details)"><UTextarea v-model="form.description" :rows="3" class="w-full" /></UFormField>
-          <UFormField label="Type">
-            <AppSelect v-model="form.kind" :options="[{ label: 'Service', value: 'service' }, { label: 'Product', value: 'product' }]" />
-          </UFormField>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Type">
+              <AppSelect v-model="form.kind" :options="[{ label: 'Service', value: 'service' }, { label: 'Product', value: 'product' }]" />
+            </UFormField>
+            <UFormField label="Income account" help="Where sales of this item go in the books.">
+              <AppSelect v-model="form.incomeAccountId" searchable placeholder="Default for the type" :options="incomeOptions" />
+            </UFormField>
+          </div>
           <div class="flex flex-wrap gap-4">
             <UCheckbox v-if="company?.vatRegistered" v-model="form.taxable" label="VAT applies" />
             <UCheckbox v-model="form.active" label="Active (shown in pickers)" />
@@ -125,6 +142,7 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
       :columns="[
         { accessorKey: 'name', header: 'Name' },
         { accessorKey: 'kind', header: 'Type' },
+        { accessorKey: 'incomeAccountId', header: 'Income account' },
         { accessorKey: 'unitPrice', header: 'Price', meta: { class: { th: 'text-right', td: 'text-right' } } },
         { id: 'actions', header: '', meta: { class: { th: 'text-right', td: 'text-right' } } },
       ]"
@@ -137,6 +155,7 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
         </div>
       </template>
       <template #kind-cell="{ row }"><span class="text-muted capitalize">{{ row.original.kind }}</span></template>
+      <template #incomeAccountId-cell="{ row }"><span class="text-muted text-sm">{{ accountLabel(row.original.incomeAccountId) }}</span></template>
       <template #unitPrice-cell="{ row }">
         <span class="tabular-nums">{{ row.original.currency ? formatCurrency(row.original.unitPrice, row.original.currency) : row.original.unitPrice.toFixed(2) }}</span>
       </template>

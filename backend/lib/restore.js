@@ -39,6 +39,7 @@ async function restoreRecord(companyId, uid, email, role, kind, id) {
   } else {
     await ref.set(patch, { merge: true });
   }
+  if (kind === "bankAccount") await require("./ledger/accounts").ensureChart(companyId, { linkBanks: true });
   await logAudit({ companyId, uid, email, action: `${kind}.restore`, payload: { id: snap.id } });
   return { id: snap.id, restored: true };
 }
