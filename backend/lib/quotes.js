@@ -1,3 +1,4 @@
+const { deletion } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { companyRef } = require("./refs");
@@ -53,7 +54,7 @@ async function listQuotes(companyId, { q, status, customerId } = {}) {
 async function getQuote(companyId, quoteId) {
   const db = getDb();
   const snap = await quotesCol(db, companyId).doc(quoteId).get();
-  if (!snap.exists) return null;
+  if (!snap.exists || snap.data().deletedAt) return null;
   return withQuoteComputed({ id: snap.id, ...snap.data() });
 }
 
@@ -206,7 +207,7 @@ async function deleteQuote(companyId, uid, email, role, quoteId) {
   assertCan(canDeleteRecords, role);
   const existing = await requireQuote(companyId, quoteId);
   const db = getDb();
-  await quotesCol(db, companyId).doc(quoteId).delete();
+  await quotesCol(db, companyId).doc(quoteId).set(deletion(uid), { merge: true });
   await logAudit({ companyId, uid, email, action: "quote.delete", payload: { quoteId, quoteNumber: existing.quoteNumber } });
 }
 

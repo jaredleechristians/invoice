@@ -1,3 +1,4 @@
+const { deletion } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { roundMoney } = require("./money");
@@ -8,7 +9,7 @@ const { logAudit } = require("./audit");
 const { getInvoice, withComputed } = require("./invoices");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso } = require("./dates");
-const { releaseTransaction } = require("./bankLinks");
+const { releaseTransaction, PAYMENT_LINK_CLEAR } = require("./bankLinks");
 
 const PAYMENT_METHODS = ["bank_transfer", "cash", "card", "paypal", "wise", "paystack", "other"];
 
@@ -18,7 +19,7 @@ function paymentsCol(db, companyId) {
 
 /** Sum of non-void payment amounts. Exported for tests. */
 function sumPayments(payments) {
-  return roundMoney((payments || []).filter((p) => !p.voided).reduce((s, p) => s + roundMoney(p.amount), 0));
+  return roundMoney((payments || []).filter((p) => !p.voided && !p.deletedAt).reduce((s, p) => s + roundMoney(p.amount), 0));
 }
 
 function normalizePayment(p) {
@@ -112,7 +113,7 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
 
 async function loadPayment(db, companyId, paymentId) {
   const snap = await paymentsCol(db, companyId).doc(paymentId).get();
-  if (!snap.exists) throw httpError(404, "Payment not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Payment not found");
   return { id: snap.id, ...snap.data() };
 }
 
@@ -136,18 +137,20 @@ async function deletePayment(companyId, uid, email, role, paymentId) {
   assertCan(canDeleteRecords, role);
   const db = getDb();
   const payment = await loadPayment(db, companyId, paymentId);
+  // Unlink from the bank line (released below), so a restore starts clean.
+  const gone = { ...deletion(uid), ...(payment.transactionId ? PAYMENT_LINK_CLEAR : {}) };
   const invSnap = await companyRef(db, companyId).collection("invoices").doc(payment.invoiceId).get();
   if (invSnap.exists) {
     await applyPaymentChange(db, companyId, payment.invoiceId, ({ payments, tx }) => {
-      tx.delete(paymentsCol(db, companyId).doc(paymentId));
-      return { payments: payments.filter((p) => p.id !== paymentId) };
+      tx.set(paymentsCol(db, companyId).doc(paymentId), gone, { merge: true });
+      return { payments: payments.map((p) => (p.id === paymentId ? { ...p, ...gone } : p)) };
     });
   } else {
-    await paymentsCol(db, companyId).doc(paymentId).delete();
+    await paymentsCol(db, companyId).doc(paymentId).set(gone, { merge: true });
   }
   if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId);
   await logAudit({ companyId, uid, email, action: "payment.delete", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
   return { invoice: invSnap.exists ? await getInvoice(companyId, payment.invoiceId) : null };
 }
 
-module.exports = { PAYMENT_METHODS, listPayments, recordPayment, voidPayment, deletePayment, sumPayments };
+module.exports = { PAYMENT_METHODS, listPayments, recordPayment, voidPayment, deletePayment, sumPayments, applyPaymentChange };

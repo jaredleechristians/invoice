@@ -1,3 +1,5 @@
+const { httpError } = require("./errors");
+const { deletion } = require("./softDelete");
 const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { canDeleteRecords, canWriteRecords } = require("./permissions");
@@ -24,7 +26,7 @@ function normalizeCustomerInput(body) {
 async function listCustomers(companyId, { q } = {}) {
   const db = getDb();
   const snap = await customersCol(db, companyId).orderBy("name").get();
-  let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => !c.deletedAt);
   if (q) {
     const needle = String(q).toLowerCase();
     rows = rows.filter(
@@ -39,7 +41,7 @@ async function listCustomers(companyId, { q } = {}) {
 async function getCustomer(companyId, customerId) {
   const db = getDb();
   const snap = await customersCol(db, companyId).doc(customerId).get();
-  if (!snap.exists) return null;
+  if (!snap.exists || snap.data().deletedAt) return null;
   return { id: snap.id, ...snap.data() };
 }
 
@@ -108,7 +110,8 @@ async function deleteCustomer(companyId, uid, email, role, customerId) {
     throw err;
   }
   const db = getDb();
-  await customersCol(db, companyId).doc(customerId).delete();
+  if (!(await getCustomer(companyId, customerId))) throw httpError(404, "Customer not found");
+  await customersCol(db, companyId).doc(customerId).set(deletion(uid), { merge: true });
   await logAudit({
     companyId,
     uid,

@@ -208,5 +208,6 @@ async function save() {
     </form>
 
     <BankAccountsCard v-if="form" />
+    <ApiKeysCard v-if="form" />
   </div>
 </template>

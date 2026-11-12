@@ -27,7 +27,7 @@ const expensesCol = (companyId) => companyRef(getDb(), companyId).collection("ex
 
 async function loadTx(companyId, transactionId) {
   const snap = await txCol(companyId).doc(String(transactionId || "")).get();
-  if (!snap.exists) throw httpError(404, "Bank transaction not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Bank transaction not found");
   return { id: snap.id, ...snap.data() };
 }
 
@@ -37,7 +37,8 @@ async function existingIds(companyId, ids) {
   const found = new Set();
   for (let i = 0; i < ids.length; i += 50) {
     const snaps = await Promise.all(ids.slice(i, i + 50).map((id) => txCol(companyId).doc(id).get()));
-    for (const s of snaps) if (s.exists) found.add(s.id);
+    // Lines from a deleted import don't count, so the statement can be imported again.
+    for (const s of snaps) if (s.exists && !s.data().deletedAt) found.add(s.id);
   }
   return found;
 }
@@ -152,16 +153,17 @@ async function listImports(companyId, { accountId } = {}) {
 async function deleteImport(companyId, uid, email, role, importId) {
   assertCan(canDeleteRecords, role);
   const snap = await importsCol(companyId).doc(importId).get();
-  if (!snap.exists) throw httpError(404, "Import not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Import not found");
   const lines = await fetchAll(txCol(companyId).where("importId", "==", importId));
   if (lines.some((t) => t.status !== "unreconciled")) throw httpError(409, "Undo the reconciled lines in this import first");
   const db = getDb();
+  const gone = { deletedAt: new Date().toISOString(), deletedBy: uid };
   for (let i = 0; i < lines.length; i += 400) {
     const batch = db.batch();
-    for (const t of lines.slice(i, i + 400)) batch.delete(txCol(companyId).doc(t.id));
+    for (const t of lines.slice(i, i + 400)) batch.set(txCol(companyId).doc(t.id), gone, { merge: true });
     await batch.commit();
   }
-  await importsCol(companyId).doc(importId).delete();
+  await importsCol(companyId).doc(importId).set(gone, { merge: true });
   await logAudit({ companyId, uid, email, action: "bankImport.delete", payload: { importId, deleted: lines.length } });
   return { deleted: lines.length };
 }
@@ -354,7 +356,7 @@ async function matchPayment(ctx, tx, body) {
   if (!(tx.amount > 0)) throw httpError(400, "Only money in can be matched to a payment");
   const ref = paymentsCol(companyId).doc(String(body.paymentId || ""));
   const snap = await ref.get();
-  if (!snap.exists) throw httpError(404, "Payment not found");
+  if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Payment not found");
   const payment = { id: snap.id, ...snap.data() };
   if (payment.voided) throw httpError(409, "That payment is void");
   if (payment.transactionId) throw httpError(409, "That payment is already linked to a bank line");

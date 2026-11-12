@@ -46,6 +46,10 @@ export default defineNuxtConfig({
         proxy:
           (process.env.NUXT_API_PROXY || "http://127.0.0.1:8787") + "/api/**",
       },
+      // MCP endpoint for API keys (see README "MCP server").
+      "/mcp": {
+        proxy: (process.env.NUXT_API_PROXY || "http://127.0.0.1:8787") + "/mcp",
+      },
       "/dashboard/**": { ssr: false },
       "/app": { redirect: "/dashboard/login" },
     },
@@ -54,6 +58,10 @@ export default defineNuxtConfig({
     server: {
       proxy: {
         "/api": {
+          target: process.env.NUXT_API_PROXY || "http://127.0.0.1:8787",
+          changeOrigin: true,
+        },
+        "/mcp": {
           target: process.env.NUXT_API_PROXY || "http://127.0.0.1:8787",
           changeOrigin: true,
         },

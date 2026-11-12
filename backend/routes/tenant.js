@@ -1,6 +1,8 @@
 const express = require("express");
 const { firebaseConfigured } = require("../lib/firebase");
-const { requireUser, requireMember } = require("../lib/auth");
+const { requireUser, requireUserOrKey, requireMember } = require("../lib/auth");
+const { enforceApiKeyScope } = require("../lib/apiKeyScope");
+const apiKeys = require("../lib/apiKeys");
 const { httpError } = require("../lib/errors");
 const companies = require("../lib/companies");
 const customers = require("../lib/customers");
@@ -43,8 +45,9 @@ const h = (fn, status = 200) => async (req, res) => {
 };
 
 // Every /companies/:companyId/* route requires membership of that company.
+// These are the only routes that accept API keys (scoped by enforceApiKeyScope).
 const company = express.Router({ mergeParams: true });
-router.use("/companies/:companyId", requireUser, requireMember, company);
+router.use("/companies/:companyId", requireUserOrKey, requireMember, enforceApiKeyScope, company);
 
 const actor = (req) => [req.companyId, req.user.uid, req.user.email, req.role];
 const safeName = (s, fallback) => String(s || fallback).replace(/[^\w.-]+/g, "-").slice(0, 60);
@@ -85,6 +88,24 @@ company.delete("/members/:memberUid", h((req) => companies.removeMember(...actor
 company.get("/invites", h(async (req) => ({ invites: await companies.listInvites(req.companyId, req.role) })));
 company.post("/invites", h((req) => companies.createInvite(...actor(req), { email: req.body?.email, role: req.body?.role }), 201));
 company.delete("/invites/:inviteId", h((req) => companies.revokeInvite(...actor(req), req.params.inviteId)));
+
+// ---------- API keys (signed-in users only; keys can't manage keys) ----------
+
+const noApiKey = (req) => {
+  if (req.apiKey) throw httpError(403, "API keys can't manage API keys");
+};
+company.get("/api-keys", h(async (req) => {
+  noApiKey(req);
+  return { keys: await apiKeys.listKeys(req.companyId, req.user.uid, req.role) };
+}));
+company.post("/api-keys", h(async (req) => {
+  noApiKey(req);
+  return apiKeys.createKey(...actor(req), req.body || {});
+}, 201));
+company.post("/api-keys/:keyId/revoke", h(async (req) => {
+  noApiKey(req);
+  return apiKeys.revokeKey(...actor(req), req.params.keyId);
+}));
 
 // ---------- customers ----------
 
@@ -218,6 +239,10 @@ company.get("/bank-transactions", h(async (req) => ({
 company.get("/bank-transactions/:transactionId/suggestions", h((req) => bank.suggestions(req.companyId, req.params.transactionId)));
 company.post("/bank-transactions/:transactionId/reconcile", h((req) => bank.reconcile(...actor(req), req.params.transactionId, req.body || {})));
 company.post("/bank-transactions/:transactionId/undo", h((req) => bank.undo(...actor(req), req.params.transactionId, req.body || {})));
+
+// ---------- restore (undo a soft delete) ----------
+
+company.post("/restore/:kind/:id", h((req) => require("../lib/restore").restoreRecord(...actor(req), req.params.kind, req.params.id)));
 
 // ---------- reports ----------
 
