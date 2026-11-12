@@ -76,6 +76,7 @@ const companyItems = computed<DropdownMenuItem[][]>(() => [
   [
     { label: "Company settings", icon: "i-lucide-settings", to: "/dashboard/settings" },
     { label: "Members", icon: "i-lucide-users", to: "/dashboard/settings/members" },
+    { label: "Chart of accounts", icon: "i-lucide-book-open", to: "/dashboard/settings/accounts" },
   ],
 ]);
 

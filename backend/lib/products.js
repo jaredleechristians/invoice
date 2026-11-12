@@ -3,10 +3,11 @@ const { getDb } = require("./firebase");
 const { randomId } = require("./ids");
 const { companyRef } = require("./refs");
 const { httpError } = require("./errors");
-const { canWriteRecords, canDeleteRecords, assertCan } = require("./permissions");
+const { canWriteRecords, canDeleteRecords, canManageSettings, assertCan } = require("./permissions");
 const { logAudit } = require("./audit");
 const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
+const { resolveIncomeAccount, defaultIncomeAccountId } = require("./ledger/accounts");
 
 function productsCol(companyId) {
   return companyRef(getDb(), companyId).collection("products");
@@ -25,6 +26,8 @@ function normalizeProduct(body = {}) {
     kind: body.kind === "product" ? "product" : "service",
     taxable: body.taxable !== false,
     active: body.active !== false,
+    // Ledger income account; "" = template default for the kind (resolved on save).
+    incomeAccountId: String(body.incomeAccountId || "").trim().slice(0, 100),
   };
 }
 
@@ -32,12 +35,22 @@ async function listProducts(companyId, { includeInactive = false } = {}) {
   const rows = await fetchAll(productsCol(companyId));
   return rows
     .filter((p) => includeInactive || p.active !== false)
+    // Products from before 1.4.0 have no account yet: show the template default.
+    .map((p) => ({ ...p, incomeAccountId: p.incomeAccountId || defaultIncomeAccountId(p.kind) }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
+
+const INCOME_ACCOUNT_FORBIDDEN = "Only owners and admins can set a product's income account";
 
 async function createProduct(companyId, uid, email, role, body) {
   assertCan(canWriteRecords, role);
   const data = normalizeProduct(body);
+  // Members get the default for the kind; only owners/admins pick an account.
+  const fallback = defaultIncomeAccountId(data.kind);
+  if (!canManageSettings(role) && data.incomeAccountId && data.incomeAccountId !== fallback) {
+    throw httpError(403, INCOME_ACCOUNT_FORBIDDEN);
+  }
+  data.incomeAccountId = await resolveIncomeAccount(companyId, canManageSettings(role) ? data.incomeAccountId : "", data.kind);
   const id = randomId();
   const now = new Date().toISOString();
   const doc = { ...data, createdAt: now, updatedAt: now, createdBy: uid };
@@ -51,7 +64,17 @@ async function updateProduct(companyId, uid, email, role, productId, body) {
   const ref = productsCol(companyId).doc(productId);
   const snap = await ref.get();
   if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Product not found");
-  const data = normalizeProduct({ ...snap.data(), ...body });
+  const prev = snap.data();
+  const admin = canManageSettings(role);
+  const current = prev.incomeAccountId || defaultIncomeAccountId(prev.kind);
+  if (!admin && body.incomeAccountId !== undefined && String(body.incomeAccountId || "") !== current) {
+    throw httpError(403, INCOME_ACCOUNT_FORBIDDEN);
+  }
+  // Owners/admins changing the kind without picking an account move it to the
+  // new kind's default. Members never change the account (not even via kind).
+  const keepAccount = !admin || (body.incomeAccountId === undefined && (body.kind === undefined || body.kind === prev.kind));
+  const data = normalizeProduct({ ...prev, ...body, incomeAccountId: keepAccount ? prev.incomeAccountId || (admin ? "" : current) : body.incomeAccountId });
+  data.incomeAccountId = await resolveIncomeAccount(companyId, data.incomeAccountId, data.kind);
   const patch = { ...data, updatedAt: new Date().toISOString() };
   await ref.set(patch, { merge: true });
   await logAudit({ companyId, uid, email, action: "product.update", payload: { productId } });

@@ -21,6 +21,9 @@ export type CompanySettings = {
   quotePrefix: string;
   quoteNextNumber: number;
   defaultCurrency: string;
+  // Ledger base currency (separate from defaultCurrency); locked once journals exist.
+  baseCurrency: string;
+  baseCurrencyLocked?: boolean;
   currencies: string[];
   paymentTermsDays: number;
   quoteValidDays: number;

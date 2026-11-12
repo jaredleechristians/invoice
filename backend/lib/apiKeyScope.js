@@ -4,7 +4,7 @@
  * - "read": GET only.
  * - "read_write": everything the key owner's role allows, including publish,
  *   void and (soft) delete, EXCEPT company settings, bank accounts (their
- *   details print on invoices), members, invites, the assistant and API keys.
+ *   details print on invoices), the chart of accounts, members, invites, the assistant and API keys.
  * Keys never see invites (they hold secret tokens) or API keys.
  * Invoices created with a key are drafts unless the request says finalize: true.
  */
@@ -14,7 +14,7 @@ const { withAuditContext } = require("./audit");
 const NEVER = [/^\/invites(\/|$)/, /^\/api-keys(\/|$)/, /^\/assistant(\/|$)/];
 
 // Blocked writes even for read_write keys (any method except GET).
-const SETTINGS = [/^\/$/, /^\/members(\/|$)/, /^\/bank-accounts(\/|$)/];
+const SETTINGS = [/^\/$/, /^\/members(\/|$)/, /^\/bank-accounts(\/|$)/, /^\/accounts(\/|$)/];
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
@@ -25,7 +25,7 @@ function checkApiKeyRequest(req) {
   if (READ_METHODS.has(req.method)) return;
   if (key.scope !== "read_write") throw httpError(403, "This API key is read only");
   if (SETTINGS.some((re) => re.test(path))) {
-    throw httpError(403, "API keys can't change company settings, bank accounts or members. Use the app.");
+    throw httpError(403, "API keys can't change company settings, bank accounts, the chart of accounts or members. Use the app.");
   }
   if (req.method === "POST" && path === "/invoices") {
     const body = req.body || {};

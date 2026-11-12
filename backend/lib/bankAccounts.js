@@ -12,6 +12,7 @@ const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate } = require("./dates");
 const crypto = require("crypto");
+const { ensureChart } = require("./ledger/accounts");
 
 // Stable keys, stored on the account. South African banks (SARB register of
 // locally controlled, foreign controlled and mutual banks, plus common
@@ -191,6 +192,7 @@ async function migrateLegacyAccounts(companyId, companyData) {
   }
   await companyRef(getDb(), companyId).set({ bankAccountsMigratedAt: now }, { merge: true });
   if (created) await logAudit({ companyId, uid: "system", email: "", action: "bankAccount.migrate", payload: { created } });
+  if (created) await ensureChart(companyId, { linkBanks: true });
   return created;
 }
 
@@ -248,6 +250,7 @@ async function createAccount(companyId, uid, email, role, body = {}) {
   const now = new Date().toISOString();
   const doc = { ...data, createdAt: now, updatedAt: now, createdBy: uid };
   await accountsCol(companyId).doc(id).set(doc);
+  await ensureChart(companyId, { linkBanks: true });
   await logAudit({ companyId, uid, email, action: "bankAccount.create", payload: { id, name: data.name, currency: data.currency } });
   return { id, ...doc };
 }
@@ -263,6 +266,7 @@ async function updateAccount(companyId, uid, email, role, accountId, body = {}) 
   }
   const patch = { ...data, updatedAt: new Date().toISOString() };
   await accountsCol(companyId).doc(accountId).set(patch, { merge: true });
+  await ensureChart(companyId, { linkBanks: true });
   await logAudit({ companyId, uid, email, action: "bankAccount.update", payload: { id: accountId } });
   return { ...existing, ...patch };
 }
@@ -273,6 +277,8 @@ async function deleteAccount(companyId, uid, email, role, accountId) {
   const used = await fetchAll(txCol(companyId).where("accountId", "==", accountId));
   if (used.length) throw httpError(409, "This account has transactions. Delete its imports first.");
   await accountsCol(companyId).doc(accountId).set({ deletedAt: new Date().toISOString(), deletedBy: uid }, { merge: true });
+  // Archives its ledger account (kept: ledger history never disappears).
+  await ensureChart(companyId, { linkBanks: true });
   await logAudit({ companyId, uid, email, action: "bankAccount.delete", payload: { id: accountId, name: existing.name } });
 }
 

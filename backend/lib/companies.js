@@ -13,6 +13,7 @@ const { logAudit } = require("./audit");
 const { SUPPORTED_CURRENCIES, normalizeCurrency, parseAmount } = require("./money");
 const { readCounter } = require("./numbering");
 const { paymentAccounts } = require("./bankAccounts");
+const ledgerAccounts = require("./ledger/accounts");
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LOGO_BYTES = 300 * 1024;
@@ -34,6 +35,9 @@ const COMPANY_DEFAULTS = {
   invoicePrefix: "INV-",
   quotePrefix: "QUO-",
   defaultCurrency: "ZAR",
+  // Ledger base currency (separate from the document default above). Locked
+  // once any journal entry exists.
+  baseCurrency: "ZAR",
   currencies: ["ZAR", "USD"],
   paymentTermsDays: 30,
   quoteValidDays: 30,
@@ -87,6 +91,7 @@ async function getCompany(companyId) {
   return {
     id: snap.id,
     ...withDefaults(data),
+    baseCurrencyLocked: await ledgerAccounts.ledgerHasEntries(companyId),
     // Read-only: payment details now live in the bank accounts collection.
     bankAccounts: await paymentAccounts(companyId, data),
     invoicePrefix: inv.prefix,
@@ -119,6 +124,7 @@ async function createCompany({ uid, email, name }) {
     tx.set(cref.collection("counters").doc("invoices"), { next: 1, prefix: company.invoicePrefix });
     tx.set(cref.collection("counters").doc("quotes"), { next: 1, prefix: company.quotePrefix });
   });
+  await ledgerAccounts.ensureChart(companyId);
   await logAudit({ companyId, uid, email, action: "company.create", payload: { name: company.name } });
   return { id: companyId, ...company, role: "owner" };
 }
@@ -196,6 +202,11 @@ function normalizeSettingsPatch(patch = {}) {
     if (!c) throw httpError(400, `Currency must be one of ${SUPPORTED_CURRENCIES.join(", ")}`);
     out.defaultCurrency = c;
   }
+  if (patch.baseCurrency !== undefined) {
+    const c = normalizeCurrency(patch.baseCurrency, "");
+    if (!c) throw httpError(400, `Base currency must be one of ${SUPPORTED_CURRENCIES.join(", ")}`);
+    out.baseCurrency = c;
+  }
   if (patch.currencies !== undefined) {
     const list = Array.isArray(patch.currencies) ? patch.currencies : [];
     const clean = [...new Set(list.map((c) => normalizeCurrency(c, "")).filter(Boolean))];
@@ -231,8 +242,14 @@ async function updateCompanySettings(companyId, uid, email, role, patch) {
   const { invoiceNextNumber, quoteNextNumber, ...companyFields } = clean;
   const cref = companyRef(db, companyId);
   const now = new Date().toISOString();
+  const locked = companyFields.baseCurrency !== undefined && (await ledgerAccounts.ledgerHasEntries(companyId));
 
   await db.runTransaction(async (tx) => {
+    if (companyFields.baseCurrency !== undefined) {
+      const current = (await tx.get(cref)).data()?.baseCurrency || COMPANY_DEFAULTS.baseCurrency;
+      if (companyFields.baseCurrency === current) delete companyFields.baseCurrency;
+      else if (locked) throw httpError(409, "The base currency can't change once the ledger has entries");
+    }
     tx.set(cref, { ...companyFields, updatedAt: now }, { merge: true });
     const invCounter = {};
     if (clean.invoicePrefix !== undefined) invCounter.prefix = clean.invoicePrefix;
