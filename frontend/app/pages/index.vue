@@ -1,4 +1,6 @@
 <script setup lang="ts">
+definePageMeta({ middleware: "root" })
+
 const { invoice, loadFromStorage, hydrated, saveToStorage, savedFlash } = useInvoice()
 const { downloadPdf, pdfBusy } = useInvoicePdf()
 
