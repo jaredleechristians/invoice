@@ -134,25 +134,52 @@ test("Settings bank accounts get linked ledger accounts", async () => {
 // ---------- mapping ----------
 
 test("products map to income accounts, defaulting by kind", async () => {
-  const svc = await products.createProduct(co, ...MEMBER, { name: "Consulting", unitPrice: 1000 });
+  const svc = await products.createProduct(co, ...OWNER, { name: "Consulting", unitPrice: 1000 });
   assert.equal(svc.incomeAccountId, "default_income");
-  const prod = await products.createProduct(co, ...MEMBER, { name: "Router", unitPrice: 900, kind: "product" });
+  const prod = await products.createProduct(co, ...OWNER, { name: "Router", unitPrice: 900, kind: "product" });
   assert.equal(prod.incomeAccountId, "t4100");
-  await assert.rejects(() => products.createProduct(co, ...MEMBER, { name: "X", incomeAccountId: "t5100" }), /income account/);
-  await assert.rejects(() => products.createProduct(co, ...MEMBER, { name: "X", incomeAccountId: "nope" }), /not found/);
+  await assert.rejects(() => products.createProduct(co, ...OWNER, { name: "X", incomeAccountId: "t5100" }), /income account/);
+  await assert.rejects(() => products.createProduct(co, ...OWNER, { name: "X", incomeAccountId: "nope" }), /not found/);
 
-  const mapped = await products.updateProduct(co, ...MEMBER, svc.id, { incomeAccountId: "t4800" });
+  const mapped = await products.updateProduct(co, ...OWNER, svc.id, { incomeAccountId: "t4800" });
   assert.equal(mapped.incomeAccountId, "t4800");
-  assert.equal((await products.updateProduct(co, ...MEMBER, svc.id, { unitPrice: 1200 })).incomeAccountId, "t4800");
+  assert.equal((await products.updateProduct(co, ...OWNER, svc.id, { unitPrice: 1200 })).incomeAccountId, "t4800");
   // Mapped accounts can't be archived.
   await assert.rejects(() => ledger.archiveLedgerAccount(co, ...OWNER, "t4800"), /Used by 1 product/);
   // Changing kind without an account moves to the new kind's default.
-  assert.equal((await products.updateProduct(co, ...MEMBER, prod.id, { kind: "service" })).incomeAccountId, "default_income");
+  assert.equal((await products.updateProduct(co, ...OWNER, prod.id, { kind: "service" })).incomeAccountId, "default_income");
 
   // Products from before 1.4.0 show the default.
   await fakeDb.collection("companies").doc(co).collection("products").doc("legacy").set({ name: "Legacy", kind: "product", active: true });
   const listed = await products.listProducts(co);
   assert.equal(listed.find((p) => p.id === "legacy").incomeAccountId, "t4100");
+});
+
+test("only owners and admins set a product's income account", async () => {
+  const ADMIN = ["u3", "u3@example.com", "admin"];
+  // Members: default on create, explicit (non-default) account refused.
+  const m = await products.createProduct(co, ...MEMBER, { name: "Support hours", unitPrice: 500 });
+  assert.equal(m.incomeAccountId, "default_income");
+  const mp = await products.createProduct(co, ...MEMBER, { name: "Cable", unitPrice: 50, kind: "product", incomeAccountId: "t4100" });
+  assert.equal(mp.incomeAccountId, "t4100", "sending the default is allowed");
+  await assert.rejects(() => products.createProduct(co, ...MEMBER, { name: "X", incomeAccountId: "t4800" }), (e) => e.status === 403 && /owners and admins/.test(e.message));
+
+  // Admin maps it; a member can edit other fields but not the account.
+  await products.updateProduct(co, ...ADMIN, m.id, { incomeAccountId: "t4200" });
+  await assert.rejects(() => products.updateProduct(co, ...MEMBER, m.id, { incomeAccountId: "t4800", unitPrice: 600 }), (e) => e.status === 403);
+  const stored = (await fakeDb.collection("companies").doc(co).collection("products").doc(m.id).get()).data();
+  assert.equal(stored.incomeAccountId, "t4200");
+  assert.equal(stored.unitPrice, 500, "rejected edit leaves the product unchanged");
+  await assert.rejects(() => products.updateProduct(co, ...MEMBER, m.id, { incomeAccountId: "" }), (e) => e.status === 403);
+  // Same value (the whole form sent back) and other fields are fine.
+  const edited = await products.updateProduct(co, ...MEMBER, m.id, { incomeAccountId: "t4200", unitPrice: 650, name: "Support" });
+  assert.equal(edited.incomeAccountId, "t4200");
+  assert.equal(edited.unitPrice, 650);
+  // A member changing the kind keeps the account.
+  assert.equal((await products.updateProduct(co, ...MEMBER, m.id, { kind: "product" })).incomeAccountId, "t4200");
+  // Legacy product without an account: a member edit stores the default it showed.
+  await fakeDb.collection("companies").doc(co).collection("products").doc("legacy2").set({ name: "Legacy 2", kind: "product", active: true });
+  assert.equal((await products.updateProduct(co, ...MEMBER, "legacy2", { kind: "service", incomeAccountId: "t4100" })).incomeAccountId, "t4100");
 });
 
 test("expense categories map to expense accounts, defaulting by name", async () => {

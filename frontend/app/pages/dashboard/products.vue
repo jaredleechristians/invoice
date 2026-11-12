@@ -64,7 +64,9 @@ async function save() {
   formError.value = "";
   try {
     const wasEditing = Boolean(editingId.value);
-    const body = { ...form, unitPrice: Number(form.unitPrice) };
+    const body: Record<string, unknown> = { ...form, unitPrice: Number(form.unitPrice) };
+    // Only owners and admins set the income account.
+    if (!isAdmin.value) delete body.incomeAccountId;
     if (editingId.value) await cpatch(`/products/${editingId.value}`, body);
     else await cpost("/products", body);
     toast.add({ title: wasEditing ? "Item updated" : "Item added", description: form.name, color: "success", icon: "i-lucide-check" });
@@ -118,8 +120,11 @@ watch([activeCompanyId, showInactive, useDataVersion()], load, { immediate: true
             <UFormField label="Type">
               <AppSelect v-model="form.kind" :options="[{ label: 'Service', value: 'service' }, { label: 'Product', value: 'product' }]" />
             </UFormField>
-            <UFormField label="Income account" help="Where sales of this item go in the books.">
+            <UFormField v-if="isAdmin" label="Income account" help="Where sales of this item go in the books.">
               <AppSelect v-model="form.incomeAccountId" searchable placeholder="Default for the type" :options="incomeOptions" />
+            </UFormField>
+            <UFormField v-else label="Income account" help="Owners and admins choose this.">
+              <UInput :model-value="accountLabel(form.incomeAccountId) || 'Default for the type'" disabled class="w-full" />
             </UFormField>
           </div>
           <div class="flex flex-wrap gap-4">
