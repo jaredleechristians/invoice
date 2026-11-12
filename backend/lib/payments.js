@@ -9,9 +9,10 @@ const { logAudit } = require("./audit");
 const { getInvoice, withComputed, loadLedgerCtx } = require("./invoices");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso } = require("./dates");
-const { releaseTransaction, PAYMENT_LINK_CLEAR } = require("./bankLinks");
-const { paymentLines } = require("./ledger/rules");
+const { releaseTransaction, PAYMENT_LINK_CLEAR, txCol } = require("./bankLinks");
+const { paymentLines, paymentBankLines } = require("./ledger/rules");
 const { planPost, planReverse, sourceKey, nextVersion, ensureGoLiveDate } = require("./ledger/post");
+const { planBankEntry, bankLedgerId } = require("./ledger/bankPost");
 
 const PAYMENT_METHODS = ["bank_transfer", "cash", "card", "paypal", "wise", "paystack", "other"];
 
@@ -111,6 +112,49 @@ async function planPaymentPost(tx, companyId, { paymentId, payment, invoice, eve
   };
 }
 
+async function planPaymentBankPost(tx, companyId, { paymentId, payment, invoice, bankTx, bankAccount, event, createdBy, ctx }) {
+  if (!bankTx || !bankAccount) return { commit() {}, ledger: payment.bankLedger || null, patch: null };
+  const lines = paymentBankLines(payment, invoice, {
+    systemAccounts: ctx.systemAccounts,
+    baseCurrency: ctx.baseCurrency,
+    bankLedgerAccountId: bankLedgerId(bankAccount.id),
+    bankAccountId: bankAccount.id,
+    bankCurrency: bankAccount.currency || bankTx.currency,
+  });
+  const planned = await planBankEntry(tx, companyId, {
+    type: "payment_bank",
+    id: paymentId,
+    date: bankTx.date || payment.paidAt,
+    lines,
+    event,
+    createdBy,
+    memo: `Bank receipt ${payment.invoiceNumber || invoice.invoiceNumber || ""}`.trim(),
+    number: payment.invoiceNumber || invoice.invoiceNumber || "",
+    currentLedger: payment.bankLedger,
+    ctx,
+  });
+  const patch = {
+    status: "matched",
+    paymentId,
+    invoiceId: invoice.id || payment.invoiceId || "",
+    invoiceNumber: invoice.invoiceNumber || payment.invoiceNumber || "",
+    matchLabel: `${invoice.invoiceNumber || payment.invoiceNumber || "Payment"} ${invoice.customerName || payment.customerName || ""}`.trim(),
+    created: payment.created || null,
+    ledger: planned.ledger,
+    reconciledAt: new Date().toISOString(),
+    reconciledBy: createdBy,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ledger: planned.ledger,
+    patch,
+    commit(writeTx) {
+      planned.commit(writeTx);
+      writeTx.set(txCol(companyId).doc(bankTx.id), patch, { merge: true });
+    },
+  };
+}
+
 /** `extra` lets internal callers (bank reconcile) add link/forex fields. */
 async function recordPayment(companyId, uid, email, role, body = {}, extra = {}) {
   assertCan(canWriteRecords, role);
@@ -124,7 +168,7 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
     db,
     companyId,
     input.invoiceId,
-    ({ invoice, payments, tx, posting, doc }) => {
+    ({ invoice, payments, tx, posting, bankPost, doc }) => {
       if (invoice.voided) throw httpError(409, "Cannot record payments on a void invoice");
       if (invoice.draft) throw httpError(409, "Publish the invoice before recording payments");
       const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments));
@@ -133,9 +177,11 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
       }
       tx.set(paymentsCol(db, companyId).doc(paymentId), doc);
       posting.commit(tx);
-      return { payment: { id: paymentId, ...doc }, payments: [...payments, doc] };
+      bankPost.commit(tx);
+      return { payment: { id: paymentId, ...doc }, payments: [...payments, doc], transaction: bankPost.patch ? { id: extra.transactionId, ...bankPost.patch } : null };
     },
     async (tx, { invoice }) => {
+      const { bankReconcile, ...linkFields } = extra;
       const doc = {
         ...input,
         currency: invoice.currency || "ZAR",
@@ -143,7 +189,7 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
         customerId: invoice.customerId || "",
         customerName: invoice.customerName || "",
         voided: false,
-        ...extra,
+        ...linkFields,
         createdAt: now,
         createdBy: uid,
       };
@@ -157,7 +203,29 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
         ctx,
       });
       doc.ledger = posting.ledger;
-      return { posting, doc };
+      let bankPost = { commit() {}, ledger: null, patch: null };
+      if (extra.transactionId) {
+        const bankSnap = await tx.get(txCol(companyId).doc(extra.transactionId));
+        if (!bankSnap.exists) throw httpError(404, "Bank transaction not found");
+        const bankAccountId = extra.bankAccountId || bankSnap.data().accountId;
+        const accountSnap = await tx.get(companyRef(db, companyId).collection("bankAccounts").doc(bankAccountId));
+        if (!accountSnap.exists) throw httpError(404, "Bank account not found");
+        bankPost = await planPaymentBankPost(tx, companyId, {
+          paymentId,
+          payment: { ...doc, created: bankReconcile?.created || { type: "payment", id: paymentId } },
+          invoice,
+          bankTx: { id: bankSnap.id, ...bankSnap.data() },
+          bankAccount: { id: accountSnap.id, ...accountSnap.data() },
+          event: "post",
+          createdBy: uid,
+          ctx,
+        });
+        doc.bankLedger = bankPost.ledger;
+        if (bankReconcile) {
+          bankPost.patch = { ...bankPost.patch, ...bankReconcile, paymentId, ledger: bankPost.ledger };
+        }
+      }
+      return { posting, bankPost, doc };
     }
   );
 
@@ -208,7 +276,7 @@ async function voidPayment(companyId, uid, email, role, paymentId, { reason = ""
       }),
     })
   );
-  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId);
+  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId, { createdBy: uid });
   await logAudit({ companyId, uid, email, action: "payment.void", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
   return { payment: normalizePayment({ ...payment, ...patch }), invoice: await getInvoice(companyId, payment.invoiceId) };
 }
@@ -218,7 +286,7 @@ async function deletePayment(companyId, uid, email, role, paymentId) {
   const db = getDb();
   const payment = await loadPayment(db, companyId, paymentId);
   // Unlink from the bank line (released below), so a restore starts clean.
-  const gone = { ...deletion(uid), ...(payment.transactionId ? PAYMENT_LINK_CLEAR : {}) };
+  const gone = { ...deletion(uid), ...(payment.transactionId ? { ...PAYMENT_LINK_CLEAR, bankLedger: { entryId: null, version: Number(payment.bankLedger?.version) || 0 } } : {}) };
   const invSnap = await companyRef(db, companyId).collection("invoices").doc(payment.invoiceId).get();
   const ctx = await loadLedgerCtx(companyId);
   if (invSnap.exists) {
@@ -258,9 +326,9 @@ async function deletePayment(companyId, uid, email, role, paymentId) {
   } else {
     await paymentsCol(db, companyId).doc(paymentId).set(gone, { merge: true });
   }
-  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId);
+  if (payment.transactionId) await releaseTransaction(companyId, payment.transactionId, { createdBy: uid });
   await logAudit({ companyId, uid, email, action: "payment.delete", payload: { paymentId, invoiceId: payment.invoiceId, amount: payment.amount } });
   return { invoice: invSnap.exists ? await getInvoice(companyId, payment.invoiceId) : null };
 }
 
-module.exports = { PAYMENT_METHODS, listPayments, recordPayment, voidPayment, deletePayment, sumPayments, applyPaymentChange, planPaymentPost };
+module.exports = { PAYMENT_METHODS, listPayments, recordPayment, voidPayment, deletePayment, sumPayments, applyPaymentChange, planPaymentPost, planPaymentBankPost };

@@ -250,7 +250,11 @@ company.get("/journals", h(async (req) => ({
   }),
 })));
 company.get("/journals/:entryId", h((req) => ledgerJournals.getJournal(req.companyId, req.params.entryId)));
+company.post("/journals", h((req) => ledgerJournals.createManualJournal(...actor(req), req.body || {}), 201));
+company.post("/journals/:entryId/reverse", h((req) => ledgerJournals.reverseManualJournal(...actor(req), req.params.entryId, req.body || {})));
 company.get("/ledger/trial-balance", h((req) => ledgerJournals.trialBalance(req.companyId, { asOf: req.query.asOf })));
+company.get("/ledger/opening-balances", h((req) => ledgerJournals.getOpeningBalances(req.companyId)));
+company.put("/ledger/opening-balances", h((req) => ledgerJournals.setOpeningBalances(...actor(req), req.body || {})));
 company.post("/ledger/catch-up", h((req) => catchUpCompany(...actor(req))));
 
 

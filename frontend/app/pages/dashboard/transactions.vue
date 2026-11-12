@@ -393,14 +393,15 @@ watch(selectedInvoice, (inv) => {
   rec.amount = inv.currency === rec.tx.currency ? Math.min(rec.tx.amount, inv.outstanding) : inv.outstanding;
   rec.invoiceRate = inv.exchangeRate || "";
 });
+const baseCurrency = computed(() => company.value?.baseCurrency || "ZAR");
 const foreignInvoice = computed(() => Boolean(selectedInvoice.value && rec.tx && selectedInvoice.value.currency !== rec.tx.currency));
 const forexPreview = computed(() => {
   const inv = selectedInvoice.value;
   const tx = rec.tx;
   const amount = Number(rec.amount);
-  if (!inv || !tx || !foreignInvoice.value || tx.currency !== "ZAR" || !(amount > 0)) return null;
+  if (!inv || !tx || !foreignInvoice.value || tx.currency !== baseCurrency.value || !(amount > 0)) return null;
   const receivedRate = tx.amount / amount;
-  const rate = Number(rec.invoiceRate);
+  const rate = Number(inv.exchangeRate || rec.invoiceRate);
   if (!(rate > 0)) return { receivedRate, gain: null as number | null, atInvoice: null as number | null };
   const atInvoice = Math.round(amount * rate * 100) / 100;
   return { receivedRate, atInvoice, gain: Math.round((tx.amount - atInvoice) * 100) / 100 };
@@ -734,20 +735,18 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
                 <UFormField :label="`Amount paid (${selectedInvoice.currency})`" :help="foreignInvoice ? `${formatCurrency(rec.tx.amount, rec.tx.currency)} received for this.` : undefined">
                   <UInput v-model="rec.amount" type="number" step="0.01" min="0.01" class="w-full" />
                 </UFormField>
-                <template v-if="foreignInvoice && rec.tx.currency === 'ZAR'">
-                  <UFormField :label="`ZAR per ${selectedInvoice.currency} on invoice date`" :help="selectedInvoice.exchangeRate ? 'From the invoice.' : 'Saved on the invoice. Leave empty to skip forex.'">
-                    <UInput v-model="rec.invoiceRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.25" class="w-full" />
-                  </UFormField>
+                <template v-if="foreignInvoice && rec.tx.currency === baseCurrency">
                   <div v-if="forexPreview" class="rounded-lg bg-elevated/50 p-3 text-sm space-y-1">
-                    <p class="text-muted">Rate received: {{ forexPreview.receivedRate.toFixed(4) }}</p>
+                    <p class="text-muted">Amount received in {{ baseCurrency }}: {{ formatCurrency(rec.tx.amount, baseCurrency) }}</p>
+                    <p class="text-muted">Rate received: {{ forexPreview.receivedRate.toFixed(4) }} {{ baseCurrency }} per 1 {{ selectedInvoice.currency }}</p>
                     <template v-if="forexPreview.gain !== null">
-                      <p class="text-muted">At invoice rate: {{ formatCurrency(forexPreview.atInvoice, "ZAR") }}</p>
-                      <p :class="forexPreview.gain >= 0 ? 'text-success' : 'text-error'">Forex {{ forexPreview.gain >= 0 ? "gain" : "loss" }}: {{ formatCurrency(Math.abs(forexPreview.gain), "ZAR") }}</p>
+                      <p class="text-muted">At invoice rate ({{ selectedInvoice.exchangeRate }}): {{ formatCurrency(forexPreview.atInvoice, baseCurrency) }}</p>
+                      <p :class="forexPreview.gain >= 0 ? 'text-success' : 'text-error'">Realised FX {{ forexPreview.gain >= 0 ? "gain" : "loss" }}: {{ formatCurrency(Math.abs(forexPreview.gain), baseCurrency) }}</p>
                     </template>
-                    <p v-else class="text-warning">No invoice-date rate, so no forex gain or loss is worked out.</p>
+                    <p v-else class="text-warning">The invoice has no exchange rate, so no FX gain or loss can be posted.</p>
                   </div>
                 </template>
-                <p v-else-if="foreignInvoice" class="text-sm text-warning">This account is not ZAR, so no forex gain or loss is worked out.</p>
+                <p v-else-if="foreignInvoice" class="text-sm text-muted">This account is not in {{ baseCurrency }}, so no realised FX is posted until the money is converted.</p>
               </template>
             </div>
 

@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { invoiceLines, paymentLines, expenseLines, toBaseCents, swapLines } = require("../lib/ledger/rules");
+const { invoiceLines, paymentLines, paymentBankLines, expenseLines, expenseBankLines, transferPairLines, transferInTransitLines, bankOpeningLines, openingBalanceLines, toBaseCents, swapLines } = require("../lib/ledger/rules");
 
 const SYS = {
   debtors: "debtors",
@@ -10,6 +10,8 @@ const SYS = {
   expense_clearing: "expense_clearing",
   default_expense: "default_expense",
   fx: "fx",
+  transfers_in_transit: "transfers_in_transit",
+  opening_balance_equity: "opening_balance_equity",
 };
 const zar = { systemAccounts: SYS, baseCurrency: "ZAR" };
 
@@ -108,4 +110,88 @@ test("reversal lines swap debit and credit and negate the foreign amount", () =>
   assert.equal(sum(rev, "debit"), sum(rev, "credit"));
   assert.equal(rev.find((l) => l.accountId === "debtors").credit, 10000);
   assert.equal(rev.find((l) => l.accountId === "debtors").foreignAmount, -10000);
+});
+
+test("bank receipt of a foreign invoice into a base-currency account posts FX to 4900", () => {
+  const payment = { amount: 2000, currency: "USD", invoiceNumber: "INV-1", receivedAmount: 36500, receivedCurrency: "ZAR" };
+  const invoice = { currency: "USD", exchangeRate: 18, invoiceNumber: "INV-1" };
+  const ctx = { ...zar, bankLedgerAccountId: "bank_fnb", bankAccountId: "fnb", bankCurrency: "ZAR" };
+  const gain = paymentBankLines(payment, invoice, ctx);
+  assert.equal(gain.find((l) => l.accountId === "bank_fnb").debit, 3650000);
+  assert.equal(gain.find((l) => l.accountId === "undeposited_funds").credit, 3600000);
+  assert.equal(gain.find((l) => l.accountId === "fx").credit, 50000);
+  const loss = paymentBankLines({ ...payment, receivedAmount: 35000 }, invoice, ctx);
+  assert.equal(loss.find((l) => l.accountId === "fx").debit, 100000);
+});
+
+test("bank receipt into a same-currency foreign account has no FX", () => {
+  const lines = paymentBankLines(
+    { amount: 2000, currency: "USD", receivedAmount: 2000, receivedCurrency: "USD" },
+    { currency: "USD", exchangeRate: 18 },
+    { ...zar, bankLedgerAccountId: "bank_wise", bankAccountId: "wise", bankCurrency: "USD" }
+  );
+  assert.equal(lines.find((l) => l.accountId === "bank_wise").debit, 3600000);
+  assert.ok(!lines.some((l) => l.accountId === "fx"));
+});
+
+test("expense bank payment from a base-currency account posts FX when the rate differs", () => {
+  const expense = { amount: 100, currency: "USD", exchangeRate: 18, vendor: "AWS" };
+  const tx = { amount: -1850, currency: "ZAR" };
+  const lines = expenseBankLines(expense, tx, { ...zar, bankLedgerAccountId: "bank_fnb", bankAccountId: "fnb", bankCurrency: "ZAR" });
+  assert.equal(lines.find((l) => l.accountId === "expense_clearing").debit, 180000);
+  assert.equal(lines.find((l) => l.accountId === "bank_fnb").credit, 185000);
+  assert.equal(lines.find((l) => l.accountId === "fx").debit, 5000);
+});
+
+test("paired cross-currency transfer posts average-cost FX", () => {
+  const lines = transferPairLines({
+    sendLedgerAccountId: "bank_wise",
+    sendBankAccountId: "wise",
+    sendCurrency: "USD",
+    sendAmount: -2000,
+    sendRate: 18,
+    receiveLedgerAccountId: "bank_fnb",
+    receiveBankAccountId: "fnb",
+    receiveCurrency: "ZAR",
+    receiveAmount: 36500,
+    systemAccounts: SYS,
+    baseCurrency: "ZAR",
+  });
+  assert.equal(lines.find((l) => l.accountId === "bank_fnb").debit, 3650000);
+  assert.equal(lines.find((l) => l.accountId === "bank_wise").credit, 3600000);
+  assert.equal(lines.find((l) => l.accountId === "fx").credit, 50000);
+});
+
+test("unpaired transfer posts against 1160", () => {
+  const out = transferInTransitLines({
+    bankLedgerAccountId: "bank_fnb",
+    bankAccountId: "fnb",
+    currency: "ZAR",
+    amount: -5000,
+    rate: 1,
+    systemAccounts: SYS,
+    baseCurrency: "ZAR",
+  });
+  assert.equal(out.find((l) => l.accountId === "transfers_in_transit").debit, 500000);
+  assert.equal(out.find((l) => l.accountId === "bank_fnb").credit, 500000);
+});
+
+test("bank opening and company opening balances plug to 3200", () => {
+  const bank = bankOpeningLines({
+    bankLedgerAccountId: "bank_fnb",
+    bankAccountId: "fnb",
+    currency: "ZAR",
+    openingBalance: 1000,
+    rate: 1,
+    systemAccounts: SYS,
+    baseCurrency: "ZAR",
+  });
+  assert.equal(bank.find((l) => l.accountId === "bank_fnb").debit, 100000);
+  assert.equal(bank.find((l) => l.accountId === "opening_balance_equity").credit, 100000);
+  const opening = openingBalanceLines(
+    [{ accountId: "share", debit: 0, credit: 10000, description: "Capital" }],
+    zar
+  );
+  assert.equal(opening.find((l) => l.accountId === "share").credit, 10000);
+  assert.equal(opening.find((l) => l.accountId === "opening_balance_equity").debit, 10000);
 });

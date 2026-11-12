@@ -130,16 +130,16 @@ test("dedupe keys: FITID based, else hash with running index for identical rows"
 
 test("computeForex: gain/loss vs invoice-date rate, flags when unknown", () => {
   const fx = bank.computeForex({ invoiceCurrency: "USD", amount: 2000, receivedCurrency: "ZAR", receivedAmount: 36500, invoiceRate: 18 });
-  assert.equal(fx.zarAtInvoiceRate, 36000);
-  assert.equal(fx.forexGainZar, 500);
+  assert.equal(fx.baseAtInvoiceRate, 36000);
+  assert.equal(fx.forexGainBase, 500);
   assert.equal(fx.receivedRate, 18.25);
   const loss = bank.computeForex({ invoiceCurrency: "USD", amount: 2000, receivedCurrency: "ZAR", receivedAmount: 35000, invoiceRate: 18 });
-  assert.equal(loss.forexGainZar, -1000);
+  assert.equal(loss.forexGainBase, -1000);
   assert.equal(bank.computeForex({ invoiceCurrency: "USD", amount: 2000, receivedCurrency: "ZAR", receivedAmount: 35000 }).forexFlag, "missing_invoice_rate");
-  assert.equal(bank.computeForex({ invoiceCurrency: "EUR", amount: 10, receivedCurrency: "USD", receivedAmount: 11 }).forexFlag, "non_zar_account");
+  assert.equal(bank.computeForex({ invoiceCurrency: "EUR", amount: 10, receivedCurrency: "USD", receivedAmount: 11 }).forexFlag, "non_base_account");
   const same = bank.computeForex({ invoiceCurrency: "ZAR", amount: 100, receivedCurrency: "ZAR", receivedAmount: 100 });
-  assert.equal(same.forexGainZar, null);
-  assert.equal(same.zarReceived, 100);
+  assert.equal(same.forexGainBase, null);
+  assert.equal(same.baseReceived, 100);
 });
 
 // ---------- flows ----------
@@ -196,7 +196,7 @@ test("CSV import with mapping dedupes on re-import", async () => {
   assert.equal(again.duplicateCount, 3);
 });
 
-test("money in: match a USD invoice from a ZAR account records ZAR received and forex gain", async () => {
+test("money in: match a USD invoice from a ZAR account records base received and forex gain", async () => {
   const inv = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerName: "Acme", currency: "USD", exchangeRate: 18, items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
   const tx = (await lines(cheque.id)).find((t) => t.amount === 36500);
   const sug = await bank.suggestions(co, tx.id);
@@ -207,8 +207,8 @@ test("money in: match a USD invoice from a ZAR account records ZAR received and 
   assert.equal(res.transaction.status, "matched");
   assert.equal(res.payment.amount, 2000);
   assert.equal(res.payment.currency, "USD");
-  assert.equal(res.payment.zarReceived, 36500);
-  assert.equal(res.payment.forexGainZar, 500);
+  assert.equal(res.payment.baseReceived, 36500);
+  assert.equal(res.payment.forexGainBase, 500);
   assert.equal(res.payment.transactionId, tx.id);
   assert.equal((await invoices.getInvoice(co, inv.id)).exchangeRate, 18, "rate saved on the invoice");
   assert.equal((await invoices.getInvoice(co, inv.id)).status, "paid");
@@ -221,13 +221,13 @@ test("money in: match a USD invoice from a ZAR account records ZAR received and 
   assert.equal(kept.deleted, null);
   const pay = (await payments.listPayments(co, { invoiceId: inv.id }))[0];
   assert.equal(pay.transactionId, "", "payment kept but unlinked");
-  assert.equal(pay.forexGainZar, null);
+  assert.equal(pay.forexGainBase, null);
 
   // Match the existing (now unlinked) payment instead.
   const sug2 = await bank.suggestions(co, tx.id);
   assert.equal(sug2.payments[0].id, pay.id);
   const m = await bank.reconcile(co, ...MEMBER, tx.id, { action: "match_payment", paymentId: pay.id });
-  assert.equal(m.forex.forexGainZar, 500, "uses the rate stored on the invoice");
+  assert.equal(m.forex.forexGainBase, 500, "uses the rate stored on the invoice");
   assert.equal(m.transaction.created, null);
   await bank.undo(co, ...MEMBER, tx.id, {});
 

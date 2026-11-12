@@ -12,10 +12,14 @@ const { fetchAll } = require("./db");
 const { inRange, daysBetween } = require("./dates");
 const { parseStatement, dedupeKeys } = require("./bankParse");
 const { getAccount } = require("./bankAccounts");
-const { LINK_CLEAR, PAYMENT_LINK_CLEAR, EXPENSE_LINK_CLEAR, txCol } = require("./bankLinks");
+const { LINK_CLEAR, PAYMENT_LINK_CLEAR, EXPENSE_LINK_CLEAR, txCol, releaseTransaction } = require("./bankLinks");
 const invoices = require("./invoices");
 const payments = require("./payments");
 const expenses = require("./expenses");
+const { computeForex, baseReceivedOf, forexGainBaseOf } = require("./ledger/forex");
+const { transferPairLines, transferInTransitLines } = require("./ledger/rules");
+const { planBankEntry, planBankReverse, averageCostRate, bankLedgerId } = require("./ledger/bankPost");
+const { baseCurrencyOf, systemAccountsOf, ensureGoLiveDate } = require("./ledger/post");
 
 const STATUSES = ["unreconciled", "matched", "categorised", "transfer", "ignored"];
 const MAX_FILE_CHARS = 1_500_000;
@@ -266,30 +270,9 @@ async function suggestions(companyId, transactionId) {
 
 // ---------- forex ----------
 
-const round6 = (n) => Math.round(n * 1e6) / 1e6;
-
-/**
- * Realised forex on a foreign-currency invoice paid into a ZAR account.
- * amount is in the invoice currency; receivedAmount in the account currency;
- * invoiceRate is ZAR per unit on the invoice date (s25D spot rate).
- */
-function computeForex({ invoiceCurrency, amount, receivedCurrency, receivedAmount, invoiceRate }) {
-  const base = {
-    receivedAmount: roundMoney(receivedAmount),
-    receivedCurrency,
-    zarReceived: receivedCurrency === "ZAR" ? roundMoney(receivedAmount) : null,
-    receivedRate: null,
-    invoiceRate: null,
-    zarAtInvoiceRate: null,
-    forexGainZar: null,
-    forexFlag: "",
-  };
-  if (invoiceCurrency === receivedCurrency) return base;
-  if (receivedCurrency !== "ZAR") return { ...base, forexFlag: "non_zar_account" };
-  const out = { ...base, receivedRate: amount > 0 ? round6(receivedAmount / amount) : null };
-  if (!(invoiceRate > 0)) return { ...out, forexFlag: "missing_invoice_rate" };
-  const zarAtInvoiceRate = roundMoney(amount * invoiceRate);
-  return { ...out, invoiceRate: round6(invoiceRate), zarAtInvoiceRate, forexGainZar: roundMoney(roundMoney(receivedAmount) - zarAtInvoiceRate) };
+async function loadBaseCurrency(companyId) {
+  const snap = await companyRef(getDb(), companyId).get();
+  return baseCurrencyOf(snap.exists ? snap.data() : {});
 }
 
 // ---------- reconcile ----------
@@ -314,10 +297,10 @@ async function finish(companyId, uid, txId, patch) {
   return full;
 }
 
-async function invoiceRateFor(companyId, uid, email, role, invoice, body) {
+async function invoiceRateFor(companyId, uid, email, role, invoice, body, baseCurrency) {
   const supplied = body.invoiceRate !== undefined && body.invoiceRate !== "" && body.invoiceRate !== null ? invoices.cleanExchangeRate(body.invoiceRate) : null;
-  if (supplied && !(invoice.exchangeRate > 0) && invoice.currency !== "ZAR") {
-    // Keep the invoice-date rate on the invoice for next time.
+  const base = baseCurrency || "ZAR";
+  if (supplied && !(invoice.exchangeRate > 0) && invoice.currency !== base) {
     await invoices.updateInvoice(companyId, uid, email, role, invoice.id, { exchangeRate: supplied });
   }
   return supplied || invoice.exchangeRate || null;
@@ -332,27 +315,29 @@ async function matchInvoice(ctx, tx, body) {
   const amount = sameCurrency ? roundMoney(body.amount || tx.amount) : roundMoney(body.amount);
   if (!(amount > 0)) throw httpError(400, `Enter the ${invoice.currency} amount this payment settles`);
   if (sameCurrency && amount > tx.amount + 0.001) throw httpError(400, "Amount is more than the bank line");
-  const rate = await invoiceRateFor(companyId, uid, email, role, invoice, body);
-  const fx = computeForex({ invoiceCurrency: invoice.currency, amount, receivedCurrency: tx.currency, receivedAmount: sameCurrency ? amount : tx.amount, invoiceRate: rate });
+  const baseCurrency = await loadBaseCurrency(companyId);
+  const rate = await invoiceRateFor(companyId, uid, email, role, invoice, body, baseCurrency);
+  const fx = computeForex({
+    invoiceCurrency: invoice.currency,
+    amount,
+    receivedCurrency: tx.currency,
+    receivedAmount: sameCurrency ? amount : tx.amount,
+    invoiceRate: rate,
+    baseCurrency,
+  });
   const method = account.bank === "wise" ? "wise" : account.bank === "paypal" ? "paypal" : "bank_transfer";
   const res = await payments.recordPayment(
     companyId, uid, email, role,
     { invoiceId: invoice.id, amount, paidAt: tx.date, method, reference: tx.reference || tx.description, note: "From bank import" },
     { transactionId: tx.id, bankAccountId: tx.accountId, ...fx }
   );
-  const patch = await finish(companyId, uid, tx.id, {
-    status: "matched",
-    paymentId: res.payment.id,
-    invoiceId: invoice.id,
-    invoiceNumber: invoice.invoiceNumber || "",
-    matchLabel: `${invoice.invoiceNumber || "Invoice"} ${invoice.customerName || ""}`.trim(),
-    created: { type: "payment", id: res.payment.id },
-  });
-  return { transaction: { ...tx, ...patch }, payment: res.payment, forex: fx };
+  await ensureGoLiveDate(companyId, tx.date);
+  const transaction = res.transaction ? { id: tx.id, ...tx, ...res.transaction } : { ...tx, status: "matched", paymentId: res.payment.id };
+  return { transaction, payment: res.payment, forex: fx };
 }
 
 async function matchPayment(ctx, tx, body) {
-  const { companyId } = ctx;
+  const { companyId, uid, email, role } = ctx;
   if (!(tx.amount > 0)) throw httpError(400, "Only money in can be matched to a payment");
   const ref = paymentsCol(companyId).doc(String(body.paymentId || ""));
   const snap = await ref.get();
@@ -363,24 +348,46 @@ async function matchPayment(ctx, tx, body) {
   const invoice = payment.invoiceId ? await invoices.getInvoice(companyId, payment.invoiceId) : null;
   const currency = payment.currency || "ZAR";
   if (currency === tx.currency && !near(payment.amount, tx.amount)) throw httpError(400, "Payment amount does not match the bank line");
-  const rate = invoice ? await invoiceRateFor(companyId, ctx.uid, ctx.email, ctx.role, invoice, body) : null;
-  const fx = computeForex({ invoiceCurrency: currency, amount: payment.amount, receivedCurrency: tx.currency, receivedAmount: tx.amount, invoiceRate: rate });
-  await ref.set({ transactionId: tx.id, bankAccountId: tx.accountId, ...fx }, { merge: true });
-  const patch = await finish(companyId, ctx.uid, tx.id, {
-    status: "matched",
-    paymentId: payment.id,
-    invoiceId: payment.invoiceId || "",
-    invoiceNumber: payment.invoiceNumber || "",
-    matchLabel: `${payment.invoiceNumber || "Payment"} ${payment.customerName || ""}`.trim(),
-    created: null,
+  const baseCurrency = await loadBaseCurrency(companyId);
+  const rate = invoice ? await invoiceRateFor(companyId, uid, email, role, invoice, body, baseCurrency) : null;
+  const fx = computeForex({
+    invoiceCurrency: currency,
+    amount: payment.amount,
+    receivedCurrency: tx.currency,
+    receivedAmount: tx.amount,
+    invoiceRate: rate,
+    baseCurrency,
   });
+  const ctxLedger = await invoices.loadLedgerCtx(companyId);
+  const account = await getAccount(companyId, tx.accountId);
+  const db = getDb();
+  let patch;
+  await db.runTransaction(async (t) => {
+    const inv = invoice || (payment.invoiceId ? (await t.get(companyRef(db, companyId).collection("invoices").doc(payment.invoiceId))).data() : {});
+    const linked = { ...payment, transactionId: tx.id, bankAccountId: tx.accountId, ...fx };
+    const bankPost = await payments.planPaymentBankPost(t, companyId, {
+      paymentId: payment.id,
+      payment: { ...linked, created: null },
+      invoice: inv || { currency, exchangeRate: rate, invoiceNumber: payment.invoiceNumber, customerName: payment.customerName },
+      bankTx: tx,
+      bankAccount: account,
+      event: "post",
+      createdBy: uid,
+      ctx: ctxLedger,
+    });
+    t.set(ref, { ...fx, transactionId: tx.id, bankAccountId: tx.accountId, bankLedger: bankPost.ledger }, { merge: true });
+    bankPost.commit(t);
+    patch = { ...bankPost.patch, created: null };
+  });
+  await ensureGoLiveDate(companyId, tx.date);
   return { transaction: { ...tx, ...patch }, forex: fx };
 }
 
 async function createExpenseFor(ctx, tx, body) {
   const { companyId, uid, email, role } = ctx;
   if (!(tx.amount < 0)) throw httpError(400, "Only money out can become an expense");
-  const exp = await expenses.createExpense(companyId, uid, email, role, {
+  const baseCurrency = await loadBaseCurrency(companyId);
+  const payload = {
     date: tx.date,
     vendor: body.vendor !== undefined ? body.vendor : tx.description,
     categoryId: body.categoryId || "",
@@ -388,29 +395,50 @@ async function createExpenseFor(ctx, tx, body) {
     currency: tx.currency,
     reference: tx.reference,
     notes: body.notes !== undefined ? body.notes : tx.description,
+  };
+  if (tx.currency !== baseCurrency && body.exchangeRate) payload.exchangeRate = body.exchangeRate;
+  const exp = await expenses.createExpense(companyId, uid, email, role, payload, {
+    transactionId: tx.id,
+    bankAccountId: tx.accountId,
   });
-  await expensesCol(companyId).doc(exp.id).set({ transactionId: tx.id, bankAccountId: tx.accountId }, { merge: true });
-  const patch = await finish(companyId, uid, tx.id, {
-    status: "categorised",
-    expenseId: exp.id,
-    matchLabel: [exp.vendor, exp.categoryName].filter(Boolean).join(" - "),
-    created: { type: "expense", id: exp.id },
-  });
-  return { transaction: { ...tx, ...patch }, expense: { ...exp, transactionId: tx.id } };
+  await ensureGoLiveDate(companyId, tx.date);
+  const transaction = exp.transaction ? { id: tx.id, ...tx, ...exp.transaction } : { ...tx, status: "categorised", expenseId: exp.id };
+  const { transaction: _ignored, ...expense } = exp;
+  return { transaction, expense: { ...expense, transactionId: tx.id, bankAccountId: tx.accountId } };
 }
 
 async function matchExpense(ctx, tx, body) {
-  const { companyId } = ctx;
+  const { companyId, uid } = ctx;
   if (!(tx.amount < 0)) throw httpError(400, "Only money out can be matched to an expense");
   const exp = await expenses.getExpense(companyId, String(body.expenseId || ""));
   if (exp.transactionId) throw httpError(409, "That expense is already linked to a bank line");
-  await expensesCol(companyId).doc(exp.id).set({ transactionId: tx.id, bankAccountId: tx.accountId }, { merge: true });
-  const patch = await finish(companyId, ctx.uid, tx.id, {
-    status: "categorised",
-    expenseId: exp.id,
-    matchLabel: [exp.vendor, exp.categoryName].filter(Boolean).join(" - "),
-    created: null,
+  const account = await getAccount(companyId, tx.accountId);
+  const ctxLedger = await invoices.loadLedgerCtx(companyId);
+  const base = ctxLedger.baseCurrency;
+  const patchExpense = { transactionId: tx.id, bankAccountId: tx.accountId };
+  // Foreign expense paid from a base-currency account: stamp the settlement rate if it has none.
+  if (exp.currency && exp.currency !== base && account.currency === base && !(Number(exp.exchangeRate) > 0) && exp.amount) {
+    patchExpense.exchangeRate = roundMoney(Math.abs(tx.amount) / exp.amount);
+  }
+  const merged = { ...exp, ...patchExpense };
+  const db = getDb();
+  let patch;
+  await db.runTransaction(async (t) => {
+    const bankPost = await expenses.planExpenseBankPost(t, companyId, {
+      expenseId: exp.id,
+      expense: merged,
+      bankTx: tx,
+      bankAccount: account,
+      event: "post",
+      createdBy: uid,
+      ctx: ctxLedger,
+      created: null,
+    });
+    t.set(expensesCol(companyId).doc(exp.id), { ...patchExpense, bankLedger: bankPost.ledger }, { merge: true });
+    bankPost.commit(t);
+    patch = { ...bankPost.patch, created: null };
   });
+  await ensureGoLiveDate(companyId, tx.date);
   return { transaction: { ...tx, ...patch } };
 }
 
@@ -424,14 +452,93 @@ async function markTransfer(ctx, tx, body) {
     if (Math.sign(candidate.amount) !== -Math.sign(tx.amount)) throw httpError(400, "The other side of a transfer must go the opposite way");
     pair = await claim(companyId, candidate.id);
   }
-  const patch = await finish(companyId, uid, tx.id, {
-    status: "transfer",
-    transferPairId: pair ? pair.id : "",
-    matchLabel: "Transfer",
-    created: null,
+  const ctxLedger = await invoices.loadLedgerCtx(companyId);
+  const account = await getAccount(companyId, tx.accountId);
+  const pairAccount = pair ? await getAccount(companyId, pair.accountId) : null;
+  const db = getDb();
+  let patch;
+  let pairPatch = null;
+  await db.runTransaction(async (t) => {
+    const finishPatch = (line, extra) => ({
+      status: "transfer",
+      matchLabel: "Transfer",
+      created: null,
+      reconciledAt: new Date().toISOString(),
+      reconciledBy: uid,
+      updatedAt: new Date().toISOString(),
+      ...extra,
+    });
+    if (pair && pairAccount) {
+      const outbound = tx.amount < 0 ? tx : pair;
+      const inbound = tx.amount < 0 ? pair : tx;
+      const sendAccount = outbound.id === tx.id ? account : pairAccount;
+      const receiveAccount = inbound.id === tx.id ? account : pairAccount;
+      let sendRate = 1;
+      if (sendAccount.currency !== ctxLedger.baseCurrency) {
+        sendRate = await averageCostRate(t, companyId, bankLedgerId(sendAccount.id), { asOf: outbound.date });
+      }
+      const lines = transferPairLines({
+        sendLedgerAccountId: bankLedgerId(sendAccount.id),
+        sendBankAccountId: sendAccount.id,
+        sendCurrency: sendAccount.currency || outbound.currency,
+        sendAmount: outbound.amount,
+        sendRate,
+        receiveLedgerAccountId: bankLedgerId(receiveAccount.id),
+        receiveBankAccountId: receiveAccount.id,
+        receiveCurrency: receiveAccount.currency || inbound.currency,
+        receiveAmount: inbound.amount,
+        systemAccounts: ctxLedger.systemAccounts,
+        baseCurrency: ctxLedger.baseCurrency,
+      });
+      const ids = [tx.id, pair.id].sort();
+      const planned = await planBankEntry(t, companyId, {
+        type: "transfer",
+        id: `${ids[0]}_${ids[1]}`,
+        date: tx.date,
+        lines,
+        event: "post",
+        createdBy: uid,
+        memo: "Transfer",
+        currentLedger: tx.ledger || pair.ledger,
+        ctx: ctxLedger,
+      });
+      patch = finishPatch(tx, { transferPairId: pair.id, ledger: planned.ledger });
+      pairPatch = finishPatch(pair, { transferPairId: tx.id, ledger: planned.ledger });
+      planned.commit(t);
+      t.set(txCol(companyId).doc(tx.id), patch, { merge: true });
+      t.set(txCol(companyId).doc(pair.id), pairPatch, { merge: true });
+    } else {
+      let rate = 1;
+      if (account.currency !== ctxLedger.baseCurrency) {
+        rate = await averageCostRate(t, companyId, bankLedgerId(account.id), { asOf: tx.date });
+      }
+      const lines = transferInTransitLines({
+        bankLedgerAccountId: bankLedgerId(account.id),
+        bankAccountId: account.id,
+        currency: account.currency || tx.currency,
+        amount: tx.amount,
+        rate,
+        systemAccounts: ctxLedger.systemAccounts,
+        baseCurrency: ctxLedger.baseCurrency,
+      });
+      const planned = await planBankEntry(t, companyId, {
+        type: "transfer",
+        id: tx.id,
+        date: tx.date,
+        lines,
+        event: "post",
+        createdBy: uid,
+        memo: "Transfer",
+        currentLedger: tx.ledger,
+        ctx: ctxLedger,
+      });
+      patch = finishPatch(tx, { transferPairId: "", ledger: planned.ledger });
+      planned.commit(t);
+      t.set(txCol(companyId).doc(tx.id), patch, { merge: true });
+    }
   });
-  if (pair) await finish(companyId, uid, pair.id, { status: "transfer", transferPairId: tx.id, matchLabel: "Transfer", created: null });
-  return { transaction: { ...tx, ...patch }, pair: pair ? { ...pair, status: "transfer", transferPairId: tx.id } : null };
+  await ensureGoLiveDate(companyId, tx.date);
+  return { transaction: { ...tx, ...patch }, pair: pair ? { ...pair, ...pairPatch } : null };
 }
 
 async function ignore(ctx, tx, body) {
@@ -484,7 +591,14 @@ async function undo(companyId, uid, email, role, transactionId, body = {}) {
       deleted = { type: "payment", id: tx.paymentId };
     } else {
       const ref = paymentsCol(companyId).doc(tx.paymentId);
-      if ((await ref.get()).exists) await ref.set(PAYMENT_LINK_CLEAR, { merge: true });
+      const snap = await ref.get();
+      if (snap.exists) {
+        const current = snap.data();
+        await ref.set({
+          ...PAYMENT_LINK_CLEAR,
+          bankLedger: { entryId: null, version: Number(current.bankLedger?.version) || 0 },
+        }, { merge: true });
+      }
     }
   }
   if (tx.expenseId) {
@@ -493,18 +607,21 @@ async function undo(companyId, uid, email, role, transactionId, body = {}) {
       deleted = { type: "expense", id: tx.expenseId };
     } else {
       const ref = expensesCol(companyId).doc(tx.expenseId);
-      if ((await ref.get()).exists) await ref.set(EXPENSE_LINK_CLEAR, { merge: true });
+      const snap = await ref.get();
+      if (snap.exists) {
+        const current = snap.data();
+        await ref.set({
+          ...EXPENSE_LINK_CLEAR,
+          bankLedger: { entryId: null, version: Number(current.bankLedger?.version) || 0 },
+        }, { merge: true });
+      }
     }
   }
-  const now = new Date().toISOString();
-  await txCol(companyId).doc(tx.id).set({ ...LINK_CLEAR, updatedAt: now }, { merge: true });
-  if (tx.transferPairId) {
-    const pairRef = txCol(companyId).doc(tx.transferPairId);
-    const pair = await pairRef.get();
-    if (pair.exists && pair.data().transferPairId === tx.id) await pairRef.set({ ...LINK_CLEAR, updatedAt: now }, { merge: true });
-  }
+  await releaseTransaction(companyId, tx.id, { createdBy: uid });
+  const updated = await txCol(companyId).doc(tx.id).get();
+  const cleared = updated.exists ? { id: updated.id, ...updated.data() } : { ...tx, ...LINK_CLEAR };
   await logAudit({ companyId, uid, email, action: "bankTransaction.undo", payload: { transactionId: tx.id, previous: tx.status, deleted } });
-  return { transaction: { ...tx, ...LINK_CLEAR }, deleted };
+  return { transaction: cleared, deleted };
 }
 
 module.exports = {

@@ -18,6 +18,7 @@ type Account = {
   showOnInvoices?: boolean;
   openingBalance?: number;
   openingDate?: string;
+  openingRate?: number | null;
   transactionCount?: number;
 };
 type BankOption = { value: string; label: string };
@@ -64,6 +65,7 @@ const blank = () => ({
   showOnInvoices: true,
   openingBalance: "" as string | number,
   openingDate: "",
+  openingRate: "" as string | number,
   saving: false,
   error: "",
 });
@@ -91,6 +93,7 @@ function open(a?: Account) {
       showOnInvoices: a.showOnInvoices !== false,
       openingBalance: a.openingBalance ?? "",
       openingDate: a.openingDate || "",
+      openingRate: a.openingRate ?? "",
     });
   }
 }
@@ -113,6 +116,7 @@ async function save() {
       showOnInvoices: form.showOnInvoices,
       openingBalance: Number(form.openingBalance) || 0,
       openingDate: form.openingDate,
+      openingRate: form.openingRate === "" ? null : Number(form.openingRate),
     };
     if (form.id) await cpatch(`/bank-accounts/${form.id}`, body);
     else await cpost("/bank-accounts", body);
@@ -180,6 +184,14 @@ async function remove() {
           <div class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Opening balance" hint="Optional"><UInput v-model="form.openingBalance" type="number" step="0.01" class="w-full" /></UFormField>
             <UFormField label="Opening date" hint="Optional"><DatePicker v-model="form.openingDate" block clearable /></UFormField>
+            <UFormField
+              v-if="form.currency && form.currency !== (company?.baseCurrency || 'ZAR')"
+              :label="`${company?.baseCurrency || 'ZAR'} per 1 ${form.currency}`"
+              hint="Needed so the opening posts to the ledger."
+              class="sm:col-span-2"
+            >
+              <UInput v-model="form.openingRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.00" class="w-full" />
+            </UFormField>
           </div>
         </form>
       </template>

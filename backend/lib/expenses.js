@@ -8,11 +8,12 @@ const { logAudit } = require("./audit");
 const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso, inRange } = require("./dates");
-const { releaseTransaction } = require("./bankLinks");
-const { resolveExpenseAccount, defaultExpenseAccountId, ensureChart } = require("./ledger/accounts");
+const { releaseTransaction, txCol } = require("./bankLinks");
+const { resolveExpenseAccount, defaultExpenseAccountId, ensureChart, bankLedgerId } = require("./ledger/accounts");
 const { cleanExchangeRate } = require("./documents");
-const { expenseLines } = require("./ledger/rules");
+const { expenseLines, expenseBankLines } = require("./ledger/rules");
 const { planPost, planReverse, sourceKey, nextVersion, ensureGoLiveDate, systemAccountsOf, baseCurrencyOf } = require("./ledger/post");
+const { planBankEntry } = require("./ledger/bankPost");
 
 // Receipts are stored in Firestore (separate doc) to avoid new infra; keep them small.
 const MAX_RECEIPT_BYTES = 700 * 1024;
@@ -233,7 +234,48 @@ function decodeReceipt(receipt) {
   return { dataBase64: data.replace(/\s+/g, ""), contentType, filename: String(receipt.filename || "receipt").slice(0, 120), size };
 }
 
-async function createExpense(companyId, uid, email, role, body = {}) {
+async function planExpenseBankPost(tx, companyId, { expenseId, expense, bankTx, bankAccount, event, createdBy, ctx, created }) {
+  if (!bankTx || !bankAccount) return { commit() {}, ledger: expense.bankLedger || null, patch: null };
+  const lines = expenseBankLines(expense, bankTx, {
+    systemAccounts: ctx.systemAccounts,
+    baseCurrency: ctx.baseCurrency,
+    bankLedgerAccountId: bankLedgerId(bankAccount.id),
+    bankAccountId: bankAccount.id,
+    bankCurrency: bankAccount.currency || bankTx.currency,
+  });
+  const planned = await planBankEntry(tx, companyId, {
+    type: "expense_bank",
+    id: expenseId,
+    date: bankTx.date || expense.date,
+    lines,
+    event,
+    createdBy,
+    memo: expense.vendor || "Expense",
+    number: expense.vendor || "",
+    currentLedger: expense.bankLedger,
+    ctx,
+  });
+  const patch = {
+    status: "categorised",
+    expenseId,
+    matchLabel: [expense.vendor, expense.categoryName].filter(Boolean).join(" - "),
+    created: created || null,
+    ledger: planned.ledger,
+    reconciledAt: new Date().toISOString(),
+    reconciledBy: createdBy,
+    updatedAt: new Date().toISOString(),
+  };
+  return {
+    ledger: planned.ledger,
+    patch,
+    commit(writeTx) {
+      planned.commit(writeTx);
+      writeTx.set(txCol(companyId).doc(bankTx.id), patch, { merge: true });
+    },
+  };
+}
+
+async function createExpense(companyId, uid, email, role, body = {}, extra = {}) {
   assertCan(canWriteRecords, role);
   const company = await loadCompanyData(companyId);
   const data = await normalizeExpense(companyId, body, company);
@@ -246,9 +288,11 @@ async function createExpense(companyId, uid, email, role, body = {}) {
     createdAt: now,
     updatedAt: now,
     createdBy: uid,
+    ...(extra.transactionId ? { transactionId: extra.transactionId, bankAccountId: extra.bankAccountId || "" } : {}),
   };
   const ctx = await loadLedgerCtx(companyId);
   const db = getDb();
+  let transaction = null;
   await db.runTransaction(async (tx) => {
     const posting = await planExpenseLedger(tx, companyId, {
       expenseId: id,
@@ -259,13 +303,34 @@ async function createExpense(companyId, uid, email, role, body = {}) {
       ctx,
     });
     doc.ledger = posting.ledger;
+    let bankPost = { commit() {}, patch: null };
+    if (extra.transactionId) {
+      const bankSnap = await tx.get(txCol(companyId).doc(extra.transactionId));
+      if (!bankSnap.exists) throw httpError(404, "Bank transaction not found");
+      const bankAccountId = extra.bankAccountId || bankSnap.data().accountId;
+      const accountSnap = await tx.get(companyRef(db, companyId).collection("bankAccounts").doc(bankAccountId));
+      if (!accountSnap.exists) throw httpError(404, "Bank account not found");
+      bankPost = await planExpenseBankPost(tx, companyId, {
+        expenseId: id,
+        expense: doc,
+        bankTx: { id: bankSnap.id, ...bankSnap.data() },
+        bankAccount: { id: accountSnap.id, ...accountSnap.data() },
+        event: "post",
+        createdBy: uid,
+        ctx,
+        created: { type: "expense", id },
+      });
+      doc.bankLedger = bankPost.ledger;
+      transaction = { id: extra.transactionId, ...bankPost.patch };
+    }
     tx.set(expensesCol(companyId).doc(id), doc);
     if (receipt) tx.set(receiptsCol(companyId).doc(id), { ...receipt, uploadedAt: now });
     posting.commit(tx);
+    bankPost.commit(tx);
   });
   await ensureGoLiveDate(companyId);
   await logAudit({ companyId, uid, email, action: "expense.create", payload: { expenseId: id, amount: data.amount, currency: data.currency } });
-  return { id, ...doc };
+  return { id, ...doc, transaction };
 }
 
 async function updateExpense(companyId, uid, email, role, expenseId, body = {}) {
@@ -315,7 +380,7 @@ async function deleteExpense(companyId, uid, email, role, expenseId) {
   assertCan(canDeleteRecords, role);
   const existing = await getExpense(companyId, expenseId);
   const db = getDb();
-  const gone = { ...deletion(uid), transactionId: "", bankAccountId: "" };
+  const gone = { ...deletion(uid), transactionId: "", bankAccountId: "", bankLedger: { entryId: null, version: Number(existing.bankLedger?.version) || 0 } };
   if (existing.ledger?.entryId) {
     const ctx = await loadLedgerCtx(companyId);
     await db.runTransaction(async (tx) => {
@@ -334,7 +399,7 @@ async function deleteExpense(companyId, uid, email, role, expenseId) {
   } else {
     await expensesCol(companyId).doc(expenseId).set(gone, { merge: true });
   }
-  if (existing.transactionId) await releaseTransaction(companyId, existing.transactionId);
+  if (existing.transactionId) await releaseTransaction(companyId, existing.transactionId, { createdBy: uid });
   await logAudit({ companyId, uid, email, action: "expense.delete", payload: { expenseId, amount: existing.amount, currency: existing.currency } });
 }
 
@@ -358,6 +423,7 @@ module.exports = {
   createExpense,
   updateExpense,
   deleteExpense,
+  planExpenseBankPost,
   getReceipt,
   decodeReceipt,
   planExpenseLedger,

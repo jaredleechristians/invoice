@@ -2,6 +2,7 @@
 // Kept free of payments/expenses imports so those modules can call it.
 const { getDb } = require("./firebase");
 const { companyRef } = require("./refs");
+const { planReverse } = require("./ledger/post");
 
 const txCol = (companyId) => companyRef(getDb(), companyId).collection("bankTransactions");
 
@@ -27,30 +28,64 @@ const PAYMENT_LINK_CLEAR = {
   receivedAmount: null,
   receivedCurrency: "",
   zarReceived: null,
+  baseReceived: null,
   receivedRate: null,
   invoiceRate: null,
   zarAtInvoiceRate: null,
+  baseAtInvoiceRate: null,
   forexGainZar: null,
+  forexGainBase: null,
   forexFlag: "",
 };
 
 const EXPENSE_LINK_CLEAR = { transactionId: "", bankAccountId: "" };
 
-/** Put a bank line back to unreconciled (no-op if it no longer exists). */
-async function releaseTransaction(companyId, transactionId) {
-  if (!transactionId) return;
-  const ref = txCol(companyId).doc(transactionId);
-  const snap = await ref.get();
-  if (!snap.exists) return;
-  const tx = snap.data();
-  await ref.set({ ...LINK_CLEAR, updatedAt: new Date().toISOString() }, { merge: true });
-  if (tx.transferPairId) {
-    const pairRef = txCol(companyId).doc(tx.transferPairId);
-    const pair = await pairRef.get();
-    if (pair.exists && pair.data().transferPairId === transactionId) {
-      await pairRef.set({ ...LINK_CLEAR, updatedAt: new Date().toISOString() }, { merge: true });
-    }
-  }
+function clearedLedger(existing) {
+  return { entryId: null, version: Number(existing?.ledger?.version) || 0 };
 }
 
-module.exports = { LINK_CLEAR, PAYMENT_LINK_CLEAR, EXPENSE_LINK_CLEAR, releaseTransaction, txCol };
+/**
+ * Put a bank line back to unreconciled and reverse its bank journal (and its
+ * transfer pair, if any). No-op if the line no longer exists. Idempotent.
+ */
+async function releaseTransaction(companyId, transactionId, { createdBy } = {}) {
+  if (!transactionId) return;
+  const db = getDb();
+  await db.runTransaction(async (tx) => {
+    const ref = txCol(companyId).doc(String(transactionId));
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data();
+    const pairId = data.transferPairId;
+    let pairRef = null;
+    let pairData = null;
+    if (pairId) {
+      pairRef = txCol(companyId).doc(pairId);
+      const pairSnap = await tx.get(pairRef);
+      if (pairSnap.exists && pairSnap.data().transferPairId === snap.id) {
+        pairData = pairSnap.data();
+      }
+    }
+    const reverses = [];
+    const seen = new Set();
+    const queue = [data.ledger?.entryId, pairData?.ledger?.entryId].filter(Boolean);
+    for (const entryId of queue) {
+      if (seen.has(entryId)) continue;
+      seen.add(entryId);
+      reverses.push(await planReverse(tx, companyId, {
+        entryId,
+        date: data.date,
+        event: "undo",
+        createdBy: createdBy || "",
+      }));
+    }
+    const now = new Date().toISOString();
+    for (const planned of reverses) planned.commit(tx);
+    tx.set(ref, { ...LINK_CLEAR, ledger: clearedLedger(data), updatedAt: now }, { merge: true });
+    if (pairRef && pairData) {
+      tx.set(pairRef, { ...LINK_CLEAR, ledger: clearedLedger({ ledger: pairData.ledger }), updatedAt: now }, { merge: true });
+    }
+  });
+}
+
+module.exports = { LINK_CLEAR, PAYMENT_LINK_CLEAR, EXPENSE_LINK_CLEAR, releaseTransaction, txCol, clearedLedger };
