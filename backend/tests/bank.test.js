@@ -197,7 +197,7 @@ test("CSV import with mapping dedupes on re-import", async () => {
 });
 
 test("money in: match a USD invoice from a ZAR account records ZAR received and forex gain", async () => {
-  const inv = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerName: "Acme", currency: "USD", items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
+  const inv = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerName: "Acme", currency: "USD", exchangeRate: 18, items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
   const tx = (await lines(cheque.id)).find((t) => t.amount === 36500);
   const sug = await bank.suggestions(co, tx.id);
   assert.equal(sug.invoices[0].id, inv.id, "invoice number + customer in the description ranks it first");
@@ -240,16 +240,14 @@ test("money in: match a USD invoice from a ZAR account records ZAR received and 
   assert.equal((await invoices.getInvoice(co, inv.id)).status, "unpaid");
 });
 
-test("money in without an invoice rate leaves forex empty and flagged", async () => {
-  const inv = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerName: "NoRate", currency: "USD", items: [{ description: "x", qty: 1, unitPrice: 2000 }] });
-  const tx = (await lines(cheque.id)).find((t) => t.amount === 36500);
-  const res = await bank.reconcile(co, ...MEMBER, tx.id, { action: "match_invoice", invoiceId: inv.id, amount: 2000 });
-  assert.equal(res.payment.forexGainZar, null);
-  assert.equal(res.payment.forexFlag, "missing_invoice_rate");
-  assert.equal(res.payment.zarReceived, 36500);
-  // Voiding the payment elsewhere releases the bank line.
-  await payments.voidPayment(co, ...MEMBER, res.payment.id);
-  assert.equal((await lines(cheque.id)).find((t) => t.id === tx.id).status, "unreconciled");
+test("a foreign-currency invoice cannot be published without an exchange rate", async () => {
+  await assert.rejects(
+    () => invoices.createInvoice(co, ...OWNER, { finalize: true, customerName: "NoRate", currency: "USD", items: [{ description: "x", qty: 1, unitPrice: 2000 }] }),
+    /exchange rate is required/
+  );
+  const draft = await invoices.createInvoice(co, ...OWNER, { draft: true, customerName: "NoRate", currency: "USD", items: [{ description: "x", qty: 1, unitPrice: 2000 }] });
+  await assert.rejects(() => invoices.finalizeInvoice(co, ...OWNER, draft.id), /exchange rate is required/);
+  assert.equal((await invoices.requireInvoice(co, draft.id)).draft, true);
 });
 
 test("money out: create expense, undo keeps or deletes it, match existing expense", async () => {

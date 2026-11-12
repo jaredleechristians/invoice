@@ -3,7 +3,7 @@
 // (system accounts use their system key, the rest "t<code>"), so seeding is
 // idempotent and safe to re-run for new and existing companies. Each Settings
 // bank account gets its own ledger account ("bank_<bankAccountId>").
-// Nothing posts yet: journals arrive in 1.5.0.
+// Journals are posted from 1.5.0.
 const { getDb } = require("../firebase");
 const { randomId } = require("../ids");
 const { companyRef } = require("../refs");
@@ -217,7 +217,7 @@ async function ledgerHasEntries(companyId) {
   return !snap.empty;
 }
 
-/** Whether an account has posted lines (blocks retyping/archiving). Journals arrive in 1.5.0. */
+/** Whether an account has posted lines (blocks retyping/archiving). */
 async function accountHasEntries(companyId, accountId) {
   const snap = await journalsCol(companyId).where("accountIds", "array-contains", accountId).limit(1).get();
   return !snap.empty;

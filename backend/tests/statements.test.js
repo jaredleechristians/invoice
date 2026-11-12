@@ -111,7 +111,7 @@ test("assistant who_owes_money returns real outstanding balances (drafts and pai
   const paid = await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: cust.id, items: [{ description: "Paid", qty: 1, unitPrice: 50 }] });
   await payments.recordPayment(co, ...OWNER, { invoiceId: paid.id, amount: 50, paidAt: "2026-10-20" });
   await invoices.createInvoice(co, ...OWNER, { draft: true, customerId: cust.id, items: [{ description: "Draft", qty: 1, unitPrice: 999 }] });
-  await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: usd.id, items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
+  await invoices.createInvoice(co, ...OWNER, { finalize: true, customerId: usd.id, exchangeRate: 18, items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }] });
   const { receivables } = await runTool(co, "who_owes_money", {});
   assert.deepEqual(receivables.map((r) => [r.customerName, r.currency, r.outstanding, r.invoiceCount]), [["US Client", "USD", 2000, 1], ["Acme Pty Ltd", "ZAR", 400, 1]]);
 });

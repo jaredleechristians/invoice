@@ -51,6 +51,18 @@ class DocRef {
   async delete() {
     this._db._store.delete(this.path);
   }
+  async create(data) {
+    if (this._db._store.has(this.path)) {
+      const err = new Error(`Already exists: ${this.path}`);
+      err.code = 6;
+      throw err;
+    }
+    this._db._write(this.path, data);
+  }
+}
+
+function getField(data, field) {
+  return String(field || "").split(".").reduce((o, k) => (o == null ? o : o[k]), data);
 }
 
 const OPS = {
@@ -91,13 +103,13 @@ class Query {
     let docs = [];
     for (const [path, data] of this._db._store.entries()) {
       if (!this._matcher(path)) continue;
-      if (!filters.every((f) => OPS[f.op](data[f.field], f.value))) continue;
+      if (!filters.every((f) => OPS[f.op](getField(data, f.field), f.value))) continue;
       docs.push(new DocSnap(new DocRef(this._db, path), clone(data)));
     }
     docs.sort((a, b) => {
       for (const o of orders) {
-        const va = a._data[o.field];
-        const vb = b._data[o.field];
+        const va = getField(a._data, o.field);
+        const vb = getField(b._data, o.field);
         if (va === vb) continue;
         const cmp = va < vb ? -1 : 1;
         return o.dir === "desc" ? -cmp : cmp;
@@ -194,6 +206,17 @@ class FakeFirestore {
       delete: (ref) => {
         wrote = true;
         ops.push(() => this._store.delete(ref.path));
+      },
+      create: (ref, data) => {
+        wrote = true;
+        ops.push(() => {
+          if (this._store.has(ref.path)) {
+            const err = new Error(`Already exists: ${ref.path}`);
+            err.code = 6;
+            throw err;
+          }
+          this._write(ref.path, data);
+        });
       },
     };
     const result = await fn(tx);

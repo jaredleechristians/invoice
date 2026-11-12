@@ -29,12 +29,69 @@ async function restoreRecord(companyId, uid, email, role, kind, id) {
   if (!data.deletedAt) return { id: snap.id, restored: false };
   const patch = { ...RESTORE, restoredAt: new Date().toISOString(), restoredBy: uid };
   if (kind === "payment") {
-    const { applyPaymentChange } = require("./payments");
+    const { applyPaymentChange, planPaymentPost } = require("./payments");
+    const { loadLedgerCtx } = require("./invoices");
     const inv = await companyRef(db, companyId).collection("invoices").doc(data.invoiceId).get();
     if (!inv.exists || inv.data().deletedAt) throw httpError(409, "Restore the invoice first");
-    await applyPaymentChange(db, companyId, data.invoiceId, ({ payments, tx }) => {
-      tx.set(ref, patch, { merge: true });
-      return { payments: payments.map((p) => (p.id === snap.id ? { ...p, ...patch } : p)) };
+    const ctx = await loadLedgerCtx(companyId);
+    const shouldPost = !data.voided;
+    await applyPaymentChange(
+      db,
+      companyId,
+      data.invoiceId,
+      ({ payments, tx, posting }) => {
+        const next = posting ? { ...patch, ledger: posting.ledger } : patch;
+        tx.set(ref, next, { merge: true });
+        posting?.commit(tx);
+        return { payments: payments.map((p) => (p.id === snap.id ? { ...p, ...patch } : p)) };
+      },
+      async (tx, { invoice }) => {
+        if (!shouldPost) return { posting: null };
+        return {
+          posting: await planPaymentPost(tx, companyId, {
+            paymentId: snap.id,
+            payment: { ...data, ...patch },
+            invoice,
+            event: "restore",
+            createdBy: uid,
+            currentLedger: data.ledger,
+            ctx,
+          }),
+        };
+      }
+    );
+  } else if (kind === "invoice" && !data.draft && !data.voided) {
+    const invoices = require("./invoices");
+    const ctx = await invoices.loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      const posting = await invoices.planInvoiceLedger(tx, companyId, {
+        invoiceId: snap.id,
+        doc: { id: snap.id, ...data, ...patch },
+        event: "restore",
+        createdBy: uid,
+        currentLedger: data.ledger,
+        reverseDate: data.issueDate,
+        postDate: data.issueDate,
+        ctx,
+      });
+      tx.set(ref, { ...patch, ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
+    });
+  } else if (kind === "expense") {
+    const expenses = require("./expenses");
+    const ctx = await expenses.loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      const posting = await expenses.planExpenseLedger(tx, companyId, {
+        expenseId: snap.id,
+        doc: { id: snap.id, ...data, ...patch },
+        event: "restore",
+        createdBy: uid,
+        currentLedger: data.ledger,
+        reverseDate: data.date,
+        ctx,
+      });
+      tx.set(ref, { ...patch, ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
     });
   } else {
     await ref.set(patch, { merge: true });
