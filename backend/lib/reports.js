@@ -92,31 +92,41 @@ function incomeByCustomer(payments, invoices, { from, to } = {}) {
   return grouped;
 }
 
-/** Outstanding on an invoice as at a date, using payments up to that date. */
-function outstandingAsOf(invoice, paymentsByInvoice, asOf) {
+/** Outstanding on an invoice as at a date, using payments and credit notes up to that date. */
+function outstandingAsOf(invoice, paymentsByInvoice, asOf, creditsByInvoice = new Map()) {
   const paid = (paymentsByInvoice.get(invoice.id) || [])
-    .filter((p) => !p.voided && (!asOf || toIsoDate(p.paidAt) <= asOf))
+    .filter((p) => !p.voided && !p.deletedAt && (!asOf || toIsoDate(p.paidAt) <= asOf))
     .reduce((s, p) => s + roundMoney(p.amount), 0);
-  return roundMoney(roundMoney(invoice.total) - paid);
+  const credited = (creditsByInvoice.get(invoice.id) || [])
+    .filter((n) => !n.voided && !n.deletedAt && !n.draft && (!asOf || toIsoDate(n.issueDate) <= asOf))
+    .reduce((s, n) => s + roundMoney(n.total), 0);
+  return roundMoney(roundMoney(invoice.total) - paid - credited);
 }
 
-function groupPayments(payments) {
+function groupByInvoice(rows, idField = "invoiceId") {
   const map = new Map();
-  for (const p of payments || []) {
-    if (!map.has(p.invoiceId)) map.set(p.invoiceId, []);
-    map.get(p.invoiceId).push(p);
+  for (const p of rows || []) {
+    const id = p[idField];
+    if (!id) continue;
+    if (!map.has(id)) map.set(id, []);
+    map.get(id).push(p);
   }
   return map;
 }
 
+function groupPayments(payments) {
+  return groupByInvoice(payments);
+}
+
 /** Open invoices as at `asOf` (issued on/before asOf, balance > 0). */
-function outstandingInvoices(invoices, payments, { asOf = todayIso() } = {}) {
+function outstandingInvoices(invoices, payments, { asOf = todayIso(), creditNotes = [] } = {}) {
   const byInv = groupPayments(payments);
+  const byCredit = groupByInvoice(creditNotes);
   const out = [];
   for (const inv of issuedInvoices(invoices)) {
     const issue = toIsoDate(inv.issueDate);
     if (issue && issue > asOf) continue;
-    const outstanding = outstandingAsOf(inv, byInv, asOf);
+    const outstanding = outstandingAsOf(inv, byInv, asOf, byCredit);
     if (outstanding <= 0) continue;
     const due = toIsoDate(inv.dueDate);
     const daysOverdue = due && due < asOf ? daysBetween(due, asOf) : 0;
@@ -142,8 +152,9 @@ function emptyBuckets() {
 }
 
 /** Aged receivables per currency: rows per customer + totals. */
-function agedReceivables(invoices, payments, { asOf = todayIso() } = {}) {
-  const open = outstandingInvoices(invoices, payments, { asOf });
+function agedReceivables(invoices, payments, { asOf = todayIso(), creditNotes = [], customers = [] } = {}) {
+  const open = outstandingInvoices(invoices, payments, { asOf, creditNotes });
+  const customersById = new Map((customers || []).map((c) => [c.id, c]));
   const result = {};
   for (const inv of open) {
     const c = inv.currency;
@@ -160,7 +171,20 @@ function agedReceivables(invoices, payments, { asOf = todayIso() } = {}) {
   }
   const out = {};
   for (const [c, v] of Object.entries(result)) {
-    out[c] = { rows: [...v.rows.values()].sort((a, b) => b.total - a.total), totals: v.totals };
+    const rows = [...v.rows.values()].sort((a, b) => b.total - a.total).map((r) => {
+      const cust = customersById.get(r.customerId);
+      if (!cust || cust.creditLimit == null) return r;
+      const limitCurrency = cust.currency || c;
+      if (limitCurrency !== c) return { ...r, creditLimit: cust.creditLimit, creditLimitCurrency: limitCurrency };
+      return {
+        ...r,
+        creditLimit: cust.creditLimit,
+        creditLimitCurrency: c,
+        available: roundMoney(cust.creditLimit - r.total),
+        overLimit: r.total > cust.creditLimit + 0.001,
+      };
+    });
+    out[c] = { rows, totals: v.totals };
   }
   return out;
 }
@@ -245,7 +269,7 @@ function defaultRange(now = new Date()) {
   return { from: `${today.slice(0, 4)}-01-01`, to: today };
 }
 
-function buildReports({ invoices, payments, expenses }, { from, to, asOf } = {}) {
+function buildReports({ invoices, payments, expenses, creditNotes = [], customers = [] }, { from, to, asOf } = {}) {
   const range = { from, to };
   const asOfDate = asOf || to || todayIso();
   return {
@@ -253,8 +277,8 @@ function buildReports({ invoices, payments, expenses }, { from, to, asOf } = {})
     incomeByMonth: incomeByMonth(payments, range),
     invoicedByMonth: invoicedByMonth(invoices, range),
     incomeByCustomer: incomeByCustomer(payments, invoices, range),
-    agedReceivables: agedReceivables(invoices, payments, { asOf: asOfDate }),
-    outstandingInvoices: outstandingInvoices(invoices, payments, { asOf: asOfDate }),
+    agedReceivables: agedReceivables(invoices, payments, { asOf: asOfDate, creditNotes, customers }),
+    outstandingInvoices: outstandingInvoices(invoices, payments, { asOf: asOfDate, creditNotes }),
     expensesByCategory: expensesByCategory(expenses, range),
     profitAndLoss: profitAndLoss(payments, expenses, range),
   };
@@ -263,12 +287,14 @@ function buildReports({ invoices, payments, expenses }, { from, to, asOf } = {})
 /** Load all company money records in pages (no hard row cap). */
 async function loadLedger(companyId) {
   const cref = companyRef(getDb(), companyId);
-  const [invoices, payments, expenses] = await Promise.all([
+  const [invoices, payments, expenses, creditNotes, customers] = await Promise.all([
     fetchAll(cref.collection("invoices")),
     fetchAll(cref.collection("payments")),
     fetchAll(cref.collection("expenses")),
+    fetchAll(cref.collection("creditNotes")),
+    fetchAll(cref.collection("customers")),
   ]);
-  return { invoices, payments, expenses };
+  return { invoices, payments, expenses, creditNotes, customers };
 }
 
 async function companyReports(companyId, { from, to, asOf } = {}) {
@@ -291,7 +317,7 @@ async function companySummary(companyId) {
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
     .slice(0, 6)
     .map((i) => ({ id: i.id, invoiceNumber: i.invoiceNumber, customerName: i.customerName, currency: i.currency, total: i.total, outstanding: i.outstanding, status: i.status, dueDate: i.dueDate }));
-  const topOverdue = outstandingInvoices(ledger.invoices, ledger.payments).filter((i) => i.daysOverdue > 0).slice(0, 6);
+  const topOverdue = outstandingInvoices(ledger.invoices, ledger.payments, { creditNotes: ledger.creditNotes }).filter((i) => i.daysOverdue > 0).slice(0, 6);
   return { ...summary, recentInvoices, topOverdue };
 }
 

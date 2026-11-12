@@ -5,6 +5,7 @@ const { formatInvoiceNumber } = require("./ids");
 const SEQUENCES = {
   invoices: { collection: "invoices", field: "invoiceNumber", prefixField: "invoicePrefix", defaultPrefix: "INV-" },
   quotes: { collection: "quotes", field: "quoteNumber", prefixField: "quotePrefix", defaultPrefix: "QUO-" },
+  creditNotes: { collection: "creditNotes", field: "creditNoteNumber", prefixField: "creditNotePrefix", defaultPrefix: "CN-" },
   journals: { collection: "journals", field: "number", prefixField: "journalPrefix", defaultPrefix: "JNL-" },
 };
 

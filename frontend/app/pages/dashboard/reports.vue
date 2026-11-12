@@ -176,22 +176,24 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 
       <!-- Aged receivables -->
       <div v-else-if="tab === 'aged'" class="space-y-4">
-        <p class="text-sm text-muted">As of {{ formatDate(data.range.asOf) }} (end of range), using payments up to that date.</p>
+        <p class="text-sm text-muted">As of {{ formatDate(data.range.asOf) }} (end of range), using payments and credit notes up to that date.</p>
         <UCard v-for="(v, cur) in data.agedReceivables" :key="cur">
           <template #header><span class="font-medium">{{ cur }}</span></template>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
-              <thead class="text-left text-xs uppercase text-dimmed"><tr><th class="py-1">Customer</th><th v-for="b in BUCKETS" :key="b" class="py-1 text-right">{{ b }}</th><th class="py-1 text-right">Total</th></tr></thead>
+              <thead class="text-left text-xs uppercase text-dimmed"><tr><th class="py-1">Customer</th><th v-for="b in BUCKETS" :key="b" class="py-1 text-right">{{ b }}</th><th class="py-1 text-right">Total</th><th class="py-1 text-right">Limit</th></tr></thead>
               <tbody class="divide-y divide-default">
                 <tr v-for="r in v.rows" :key="r.customerId || r.customerName">
                   <td class="py-1.5">{{ r.customerName }}</td>
                   <td v-for="b in BUCKETS" :key="b" class="py-1.5 text-right tabular-nums" :class="r[b] ? '' : 'text-dimmed'">{{ r[b] ? formatCurrency(r[b], String(cur)) : "—" }}</td>
                   <td class="py-1.5 text-right tabular-nums font-medium">{{ formatCurrency(r.total, String(cur)) }}</td>
+                  <td class="py-1.5 text-right tabular-nums" :class="r.overLimit ? 'text-error' : 'text-muted'">{{ r.creditLimit != null ? formatCurrency(r.creditLimit, String(cur)) : "—" }}</td>
                 </tr>
                 <tr class="font-semibold">
                   <td class="py-1.5">Total</td>
                   <td v-for="b in BUCKETS" :key="b" class="py-1.5 text-right tabular-nums">{{ formatCurrency(v.totals[b] || 0, String(cur)) }}</td>
                   <td class="py-1.5 text-right tabular-nums">{{ formatCurrency(v.totals.total || 0, String(cur)) }}</td>
+                  <td class="py-1.5"></td>
                 </tr>
               </tbody>
             </table>

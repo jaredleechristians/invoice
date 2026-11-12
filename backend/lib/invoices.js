@@ -24,6 +24,7 @@ const {
 const { ensureChart } = require("./ledger/accounts");
 const { invoiceLines } = require("./ledger/rules");
 const { planPost, planReverse, sourceKey, nextVersion, systemAccountsOf, baseCurrencyOf, ensureGoLiveDate } = require("./ledger/post");
+const { effectivePaymentTermsDays, creditLimitWarningForInvoice } = require("./customers");
 
 function invoicesCol(db, companyId) {
   return companyRef(db, companyId).collection("invoices");
@@ -36,6 +37,7 @@ function withComputed(invoice, now = new Date()) {
     {
       total,
       paidAmount: invoice.paidAmount ?? 0,
+      creditedAmount: invoice.creditedAmount ?? 0,
       dueDate: invoice.dueDate,
       draft: invoice.draft,
       voided: invoice.voided,
@@ -198,7 +200,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
   const vatRate = body.vatRate !== undefined && company.vatRegistered ? Number(body.vatRate) || 0 : companyVatRate(company);
   const totals = totalsFor(items, vatRate);
   const issueDate = toIsoDate(body.issueDate) || todayIso();
-  const terms = company.paymentTermsDays ?? 30;
+  const terms = effectivePaymentTermsDays(cust.customer, company);
   const dueDate =
     body.dueDate !== undefined ? toIsoDate(body.dueDate) || String(body.dueDate || "") : addDaysIso(issueDate, terms);
   const base = company.baseCurrency || "ZAR";
@@ -225,6 +227,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     legal: body.legal || null,
     issuer: null,
     paidAmount: 0,
+    creditedAmount: 0,
     payload: body.payload || null,
     sourceQuoteId: String(body.sourceQuoteId || ""),
     duplicatedFrom: String(body.duplicatedFrom || ""),
@@ -275,7 +278,8 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     action: "invoice.create",
     payload: { invoiceId: id, invoiceNumber: doc.invoiceNumber, draft, total: doc.total, currency },
   });
-  return withComputed({ id, ...doc });
+  const created = withComputed({ id, ...doc });
+  return draft ? created : withCreditLimitWarning(companyId, created);
 }
 
 const EDITABLE = ["billTo", "notes", "footer", "reference", "banking", "legal", "payload"];
@@ -322,8 +326,8 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     const vatRate =
       body.vatRate !== undefined ? (company.vatRegistered ? Number(body.vatRate) || 0 : 0) : existing.vatRate ?? 0;
     Object.assign(patch, { items, vatRate }, totalsFor(items, vatRate));
-    if (!existing.draft && patch.total < roundMoney(existing.paidAmount)) {
-      throw httpError(409, "Invoice total cannot be less than the amount already paid");
+    if (!existing.draft && patch.total < roundMoney((existing.paidAmount || 0) + (existing.creditedAmount || 0))) {
+      throw httpError(409, "Invoice total cannot be less than the amount already paid and credited");
     }
   }
 
@@ -396,7 +400,8 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     action: wantFinalize ? "invoice.finalize" : "invoice.update",
     payload: { invoiceId, invoiceNumber: merged.invoiceNumber, total: merged.total },
   });
-  return withComputed(merged);
+  const out = withComputed(merged);
+  return wantFinalize || !out.draft ? withCreditLimitWarning(companyId, out) : out;
 }
 
 async function finalizeInvoice(companyId, uid, email, role, invoiceId) {
@@ -418,6 +423,9 @@ async function voidInvoice(companyId, uid, email, role, invoiceId, { reason = ""
   if (existing.draft) throw httpError(409, "Drafts can be deleted instead of voided");
   if ((await countActivePayments(companyId, invoiceId)) > 0) {
     throw httpError(409, "Void or delete this invoice's payments first");
+  }
+  if ((await countActiveCreditNotes(companyId, invoiceId)) > 0) {
+    throw httpError(409, "Void or delete this invoice's credit notes first");
   }
   const db = getDb();
   const now = new Date().toISOString();
@@ -468,6 +476,9 @@ async function deleteInvoice(companyId, uid, email, role, invoiceId) {
   if ((await countActivePayments(companyId, invoiceId, { includeVoided: true })) > 0) {
     throw httpError(409, "This invoice has payments. Delete them first, or void the invoice instead.");
   }
+  if ((await countActiveCreditNotes(companyId, invoiceId, { includeVoided: true, includeDrafts: true })) > 0) {
+    throw httpError(409, "This invoice has credit notes. Delete or void them first.");
+  }
   const db = getDb();
   // Soft delete: the document (and its number) stays, hidden everywhere.
   // Reverse a published (non-void) invoice on the original issue date.
@@ -493,6 +504,15 @@ async function deleteInvoice(companyId, uid, email, role, invoiceId) {
   await logAudit({ companyId, uid, email, action: "invoice.delete", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, draft: existing.draft } });
 }
 
+
+async function countActiveCreditNotes(companyId, invoiceId, opts = {}) {
+  return require("./creditNotes").countActiveCreditNotes(companyId, invoiceId, opts);
+}
+
+async function withCreditLimitWarning(companyId, invoice) {
+  const warning = await creditLimitWarningForInvoice(companyId, invoice);
+  return warning ? { ...invoice, creditLimitWarning: warning } : invoice;
+}
 module.exports = {
   listInvoices,
   getInvoice,

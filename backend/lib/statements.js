@@ -26,7 +26,7 @@ const blankAging = () => Object.fromEntries(AGING_BUCKETS.map((b) => [b, 0]));
  * Pure statement calculation (exported for tests).
  * invoices: stored invoices for one customer; payments: payments for those invoices.
  */
-function computeStatement({ invoices, payments, from = "", to }) {
+function computeStatement({ invoices, payments, creditNotes = [], from = "", to }) {
   const end = toIsoDate(to) || todayIso();
   const start = toIsoDate(from) || "";
   if (start && start > end) throw httpError(400, "The start date is after the end date");
@@ -43,7 +43,7 @@ function computeStatement({ invoices, payments, from = "", to }) {
 
   const ledger = {};
   const section = (c) =>
-    (ledger[c] = ledger[c] || { currency: c, opening: 0, invoiced: 0, paid: 0, closing: 0, entries: [] });
+    (ledger[c] = ledger[c] || { currency: c, opening: 0, invoiced: 0, paid: 0, credited: 0, closing: 0, entries: [] });
 
   for (const inv of issued) {
     const s = section(inv.currency);
@@ -77,6 +77,27 @@ function computeStatement({ invoices, payments, from = "", to }) {
         credit: p.amount,
       });
   }
+  const notes = (creditNotes || [])
+    .filter((n) => !n.voided && !n.draft && invById[n.invoiceId])
+    .map((n) => ({ ...n, issueIso: toIsoDate(n.issueDate), amount: roundMoney(n.total), currency: invById[n.invoiceId].currency }))
+    .filter((n) => n.issueIso && n.issueIso <= end);
+  for (const n of notes) {
+    const s = section(n.currency);
+    const inv = invById[n.invoiceId];
+    if (start && n.issueIso < start) s.opening = roundMoney(s.opening - n.amount);
+    else
+      s.entries.push({
+        date: n.issueIso,
+        type: "credit_note",
+        invoiceId: inv.id,
+        creditNoteId: n.id,
+        reference: n.creditNoteNumber || "",
+        description: `Credit note ${n.creditNoteNumber || ""} - ${inv.invoiceNumber || "invoice"}`.trim(),
+        dueDate: "",
+        debit: 0,
+        credit: n.amount,
+      });
+  }
 
   for (const s of Object.values(ledger)) {
     // Date order; on the same day invoices come before payments.
@@ -86,20 +107,23 @@ function computeStatement({ invoices, payments, from = "", to }) {
       bal = roundMoney(bal + e.debit - e.credit);
       e.balance = bal;
       s.invoiced = roundMoney(s.invoiced + e.debit);
-      s.paid = roundMoney(s.paid + e.credit);
+      if (e.type === "credit_note") s.credited = roundMoney(s.credited + e.credit);
+      else s.paid = roundMoney(s.paid + e.credit);
     }
     s.closing = bal;
   }
 
-  // Ageing as at the end date, per invoice, using payments up to that date.
+  // Ageing as at the end date, per invoice, using payments and credit notes up to that date.
   const paidByInvoice = {};
   for (const p of pays) paidByInvoice[p.invoiceId] = roundMoney((paidByInvoice[p.invoiceId] || 0) + p.amount);
+  const creditedByInvoice = {};
+  for (const n of notes) creditedByInvoice[n.invoiceId] = roundMoney((creditedByInvoice[n.invoiceId] || 0) + n.amount);
   const asAt = new Date(`${end}T12:00:00Z`);
   const aging = {};
   const totals = {};
   const running = {};
   const open = issued
-    .map((inv) => ({ inv, outstanding: roundMoney(inv.total - (paidByInvoice[inv.id] || 0)) }))
+    .map((inv) => ({ inv, outstanding: roundMoney(inv.total - (paidByInvoice[inv.id] || 0) - (creditedByInvoice[inv.id] || 0)) }))
     .filter((x) => x.outstanding > 0)
     .sort((a, b) => a.inv.issueIso.localeCompare(b.inv.issueIso));
   const lines = open.map(({ inv, outstanding }) => {
@@ -117,6 +141,7 @@ function computeStatement({ invoices, payments, from = "", to }) {
       currency: c,
       total: inv.total,
       paidAmount: paidByInvoice[inv.id] || 0,
+      creditedAmount: creditedByInvoice[inv.id] || 0,
       outstanding,
       agingBucket: bucket,
       balance: running[c],
@@ -147,7 +172,8 @@ async function buildStatement(companyId, customerId, { from, to, asOf } = {}) {
   const invoices = await listInvoices(companyId, { customerId });
   const ids = new Set(invoices.map((i) => i.id));
   const payments = (await listPayments(companyId)).filter((p) => ids.has(p.invoiceId));
-  const out = computeStatement({ invoices, payments, from, to: to || asOf });
+  const creditNotes = (await require("./creditNotes").listCreditNotes(companyId, { customerId })).filter((n) => ids.has(n.invoiceId));
+  const out = computeStatement({ invoices, payments, creditNotes, from, to: to || asOf });
   return { generatedAt: new Date().toISOString(), customer, ...out };
 }
 

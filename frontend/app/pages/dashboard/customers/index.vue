@@ -1,7 +1,7 @@
 <script setup lang="ts">
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
-type Customer = { id: string; name: string; email?: string; phone?: string; address?: string; taxNumber?: string; currency?: string; notes?: string };
+type Customer = { id: string; name: string; email?: string; phone?: string; address?: string; taxNumber?: string; currency?: string; notes?: string; paymentTermsDays?: number | null; creditLimit?: number | null };
 
 const { activeCompanyId, capi, cpost, cpatch, cdelete } = useCompanyApi();
 const { currencies, isAdmin, ensure } = useCompany();
@@ -12,7 +12,7 @@ const saving = ref(false);
 const error = ref("");
 const editingId = ref("");
 const q = ref("");
-const blank = () => ({ name: "", email: "", phone: "", address: "", taxNumber: "", currency: "", notes: "" });
+const blank = () => ({ name: "", email: "", phone: "", address: "", taxNumber: "", currency: "", notes: "", paymentTermsDays: null as number | null, creditLimit: null as number | null });
 const form = reactive(blank());
 const formOpen = ref(false);
 const formError = ref("");
@@ -60,8 +60,13 @@ async function save() {
   formError.value = "";
   try {
     const wasEditing = Boolean(editingId.value);
-    if (editingId.value) await cpatch(`/customers/${editingId.value}`, form);
-    else await cpost("/customers", form);
+    const payload = {
+      ...form,
+      paymentTermsDays: form.paymentTermsDays === "" || form.paymentTermsDays == null || Number.isNaN(Number(form.paymentTermsDays)) ? null : form.paymentTermsDays,
+      creditLimit: form.creditLimit === "" || form.creditLimit == null || Number.isNaN(Number(form.creditLimit)) ? null : form.creditLimit,
+    };
+    if (editingId.value) await cpatch(`/customers/${editingId.value}`, payload);
+    else await cpost("/customers", payload);
     toast.add({ title: wasEditing ? "Customer updated" : "Customer added", description: form.name, color: "success", icon: "i-lucide-check" });
     formOpen.value = false;
     reset();
@@ -112,6 +117,14 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
             <UFormField label="Tax / VAT number"><UInput v-model="form.taxNumber" class="w-full" /></UFormField>
             <UFormField label="Default currency">
               <AppSelect v-model="form.currency" searchable placeholder="Company default" :options="currencies.map((c) => ({ label: c, value: c }))" />
+            </UFormField>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Payment terms (days)" hint="Leave blank to use the company default">
+              <UInput v-model.number="form.paymentTermsDays" type="number" min="0" max="365" placeholder="Company default" class="w-full" />
+            </UFormField>
+            <UFormField label="Credit limit" hint="Optional, in the customer's currency. Publishing over the limit warns but is allowed.">
+              <UInput v-model.number="form.creditLimit" type="number" min="0" step="0.01" placeholder="No limit" class="w-full" />
             </UFormField>
           </div>
         </form>

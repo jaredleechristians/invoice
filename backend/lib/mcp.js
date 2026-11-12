@@ -25,6 +25,7 @@ const ledgerAccounts = require("./ledger/accounts");
 const ledgerJournals = require("./ledger/journals");
 const { buildStatement } = require("./statements");
 const { listReceivables } = require("./receivables");
+const creditNotes = require("./creditNotes");
 const { canWriteRecords } = require("./permissions");
 
 const pkg = require("../package.json");
@@ -43,7 +44,7 @@ function page(rows, { limit = 25, offset = 0 } = {}) {
 }
 
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o?.[k] !== undefined).map((k) => [k, o[k]]));
-const INVOICE_ROW = ["id", "invoiceNumber", "status", "draft", "voided", "customerId", "customerName", "currency", "issueDateIso", "dueDateIso", "total", "paidAmount", "outstanding"];
+const INVOICE_ROW = ["id", "invoiceNumber", "status", "draft", "voided", "customerId", "customerName", "currency", "issueDateIso", "dueDateIso", "total", "paidAmount", "creditedAmount", "outstanding"];
 const ITEM = z.object({
   description: z.string().min(1).max(500),
   qty: z.number().positive().optional().describe("Default 1"),
@@ -158,6 +159,21 @@ function buildMcpServer(ctx) {
     };
   });
 
+  read("list_credit_notes", "Credit notes, newest first.", {
+    invoiceId: ID.optional(), customerId: ID.optional(), status: z.string().max(40).optional(), q: z.string().max(100).optional(), ...PAGE,
+  }, async (a) => {
+    const rows = await creditNotes.listCreditNotes(ctx.companyId, a);
+    return page(rows.map((n) => pick(n, ["id", "creditNoteNumber", "status", "invoiceId", "invoiceNumber", "customerId", "customerName", "currency", "issueDateIso", "total", "reason", "voided", "draft"])), a);
+  });
+
+  read("get_credit_note", "One credit note with its lines and totals.", { creditNoteId: ID }, async (a) => {
+    const n = await creditNotes.requireCreditNote(ctx.companyId, a.creditNoteId);
+    return {
+      ...pick(n, ["id", "creditNoteNumber", "status", "invoiceId", "invoiceNumber", "customerId", "customerName", "billTo", "currency", "issueDate", "exchangeRate", "subtotal", "taxTotal", "vatRate", "total", "reason", "notes", "voided", "draft"]),
+      items: (n.items || []).map((it) => pick(it, ["description", "qty", "unitPrice", "note", "taxable"])),
+    };
+  });
+
   read("get_receivables", "Who owes money: outstanding per customer and currency, plus aged receivables buckets.", { asOf: ISO.optional() }, async (a) => {
     const [byCustomer, r] = await Promise.all([listReceivables(ctx.companyId), reports.companyReports(ctx.companyId, { asOf: a.asOf })]);
     return { byCustomer, aged: r.agedReceivables };
@@ -208,7 +224,15 @@ function buildMcpServer(ctx) {
   write("create_customer", "Create a customer.", {
     name: z.string().min(1).max(200), email: z.string().max(200).optional(), phone: z.string().max(50).optional(),
     address: z.string().max(1000).optional(), taxNumber: z.string().max(50).optional(), currency: CURRENCY.optional(), notes: z.string().max(2000).optional(),
-  }, async (a) => pick(await customers.createCustomer(...who, a), ["id", "name", "email", "currency"]));
+    paymentTermsDays: z.number().int().min(0).max(365).optional(), creditLimit: z.number().min(0).optional(),
+  }, async (a) => pick(await customers.createCustomer(...who, a), ["id", "name", "email", "currency", "paymentTermsDays", "creditLimit"]));
+
+  write("create_draft_credit_note", "Create a DRAFT credit note linked to one published invoice. It is not published or posted until you do that in the app.", {
+    invoiceId: ID, items: z.array(ITEM).min(1).max(100).optional(), issueDate: ISO.optional(), reason: z.string().max(500).optional(), notes: z.string().max(2000).optional(),
+  }, async (a) => {
+    const note = await creditNotes.createCreditNote(...who, { ...a, draft: true, finalize: false });
+    return pick(note, ["id", "creditNoteNumber", "status", "invoiceId", "invoiceNumber", "customerName", "currency", "issueDateIso", "total", "reason", "draft"]);
+  });
 
   write("create_draft_invoice", "Create a DRAFT invoice. Use publish_invoice to give it a number and issue it.", {
     customerId: ID, items: z.array(ITEM).min(1).max(100), issueDate: ISO.optional(), dueDate: ISO.optional(),

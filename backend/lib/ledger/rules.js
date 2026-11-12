@@ -588,6 +588,17 @@ function openingBalanceLines(items, { systemAccounts, baseCurrency }) {
   return lines.length ? assertBalanced(lines) : [];
 }
 
+/**
+ * Credit note published: the inverse of invoiceLines for the credited items
+ * (Dr income and VAT, Cr 1100 debtors) at the original invoice rate.
+ */
+function creditNoteLines(creditNote, ctx) {
+  return swapLines(invoiceLines(creditNote, ctx)).map((l) => ({
+    ...l,
+    description: l.description || creditNote.creditNoteNumber || "Credit note",
+  }));
+}
+
 function swapLines(lines) {
   return (lines || []).map((l) => ({
     ...l,
@@ -602,6 +613,7 @@ module.exports = {
   toBaseCents,
   documentRate,
   invoiceLines,
+  creditNoteLines,
   paymentLines,
   paymentBankLines,
   expenseLines,

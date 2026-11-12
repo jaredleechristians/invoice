@@ -34,6 +34,7 @@ const COMPANY_DEFAULTS = {
   taxYearEndMonth: 2,
   invoicePrefix: "INV-",
   quotePrefix: "QUO-",
+  creditNotePrefix: "CN-",
   defaultCurrency: "ZAR",
   // Ledger base currency (separate from the document default above). Locked
   // once any journal entry exists.
@@ -83,9 +84,10 @@ async function getCompany(companyId) {
   const db = getDb();
   const snap = await companyRef(db, companyId).get();
   if (!snap.exists) throw httpError(404, "Company not found");
-  const [inv, quo] = await Promise.all([
+  const [inv, quo, cn] = await Promise.all([
     readCounter(companyId, "invoices"),
     readCounter(companyId, "quotes"),
+    readCounter(companyId, "creditNotes"),
   ]);
   const data = snap.data();
   return {
@@ -98,6 +100,8 @@ async function getCompany(companyId) {
     invoiceNextNumber: inv.next,
     quotePrefix: quo.prefix,
     quoteNextNumber: quo.next,
+    creditNotePrefix: cn.prefix,
+    creditNoteNextNumber: cn.next,
   };
 }
 
@@ -123,6 +127,7 @@ async function createCompany({ uid, email, name }) {
     });
     tx.set(cref.collection("counters").doc("invoices"), { next: 1, prefix: company.invoicePrefix });
     tx.set(cref.collection("counters").doc("quotes"), { next: 1, prefix: company.quotePrefix });
+    tx.set(cref.collection("counters").doc("creditNotes"), { next: 1, prefix: company.creditNotePrefix });
   });
   await ledgerAccounts.ensureChart(companyId);
   await logAudit({ companyId, uid, email, action: "company.create", payload: { name: company.name } });
@@ -227,8 +232,10 @@ function normalizeSettingsPatch(patch = {}) {
   // The old field is kept untouched for safety.
   if (patch.invoicePrefix !== undefined) out.invoicePrefix = validatePrefix(patch.invoicePrefix);
   if (patch.quotePrefix !== undefined) out.quotePrefix = validatePrefix(patch.quotePrefix);
+  if (patch.creditNotePrefix !== undefined) out.creditNotePrefix = validatePrefix(patch.creditNotePrefix);
   if (patch.invoiceNextNumber !== undefined) out.invoiceNextNumber = validateNextNumber(patch.invoiceNextNumber);
   if (patch.quoteNextNumber !== undefined) out.quoteNextNumber = validateNextNumber(patch.quoteNextNumber);
+  if (patch.creditNoteNextNumber !== undefined) out.creditNoteNextNumber = validateNextNumber(patch.creditNoteNextNumber);
   if (out.currencies && out.defaultCurrency && !out.currencies.includes(out.defaultCurrency)) {
     out.currencies.push(out.defaultCurrency);
   }
@@ -239,7 +246,7 @@ async function updateCompanySettings(companyId, uid, email, role, patch) {
   if (!canManageSettings(role)) throw httpError(403, "Only owners and admins can change company settings");
   const db = getDb();
   const clean = normalizeSettingsPatch(patch || {});
-  const { invoiceNextNumber, quoteNextNumber, ...companyFields } = clean;
+  const { invoiceNextNumber, quoteNextNumber, creditNoteNextNumber, ...companyFields } = clean;
   const cref = companyRef(db, companyId);
   const now = new Date().toISOString();
   const locked = companyFields.baseCurrency !== undefined && (await ledgerAccounts.ledgerHasEntries(companyId));
@@ -262,6 +269,12 @@ async function updateCompanySettings(companyId, uid, email, role, patch) {
     if (quoteNextNumber !== undefined) quoCounter.next = quoteNextNumber;
     if (Object.keys(quoCounter).length) {
       tx.set(cref.collection("counters").doc("quotes"), quoCounter, { merge: true });
+    }
+    const cnCounter = {};
+    if (clean.creditNotePrefix !== undefined) cnCounter.prefix = clean.creditNotePrefix;
+    if (creditNoteNextNumber !== undefined) cnCounter.next = creditNoteNextNumber;
+    if (Object.keys(cnCounter).length) {
+      tx.set(cref.collection("counters").doc("creditNotes"), cnCounter, { merge: true });
     }
   });
 

@@ -70,6 +70,7 @@ export const STATUS_COLORS: Record<string, "success" | "error" | "warning" | "ne
   declined: "error",
   converted: "primary",
   expired: "warning",
+  issued: "success",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -86,6 +87,7 @@ const STATUS_LABELS: Record<string, string> = {
   declined: "Declined",
   converted: "Converted",
   expired: "Expired",
+  issued: "Issued",
 };
 
 /** Human label for an invoice/quote status, e.g. "partially_paid" → "Partially paid". */
@@ -132,4 +134,12 @@ export function datePresets(today = todayIso(), taxYearEndMonth: unknown = DEFAU
     ...taxYearPresets(today, taxYearEndMonth),
     { label: "Last 12 months", from: `${back.getUTCFullYear()}-${pad(back.getUTCMonth() + 1)}-01`, to: today },
   ];
+}
+
+
+/** Toast when publishing an invoice that exceeds the customer's credit limit (warn only). */
+export function notifyCreditLimitWarning(doc?: { creditLimitWarning?: { message?: string } } | null) {
+  const message = doc?.creditLimitWarning?.message;
+  if (!message) return;
+  useToast().add({ title: "Over the credit limit", description: message, color: "warning", icon: "i-lucide-triangle-alert" });
 }

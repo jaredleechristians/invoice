@@ -79,8 +79,13 @@ function renderDocumentHtml({ kind = "invoice", doc, company = {} }) {
   const money = (n) => formatMoney(n, currency);
   const issuer = resolveIssuer(doc, company);
   const isInvoice = kind === "invoice";
-  const title = isInvoice ? (doc.draft ? "Draft invoice" : "Invoice") : "Quote";
-  const number = isInvoice ? doc.invoiceNumber : doc.quoteNumber;
+  const isCredit = kind === "credit_note";
+  const title = isCredit
+    ? doc.draft ? "Draft credit note" : "Credit note"
+    : isInvoice
+      ? (doc.draft ? "Draft invoice" : "Invoice")
+      : "Quote";
+  const number = isCredit ? doc.creditNoteNumber : isInvoice ? doc.invoiceNumber : doc.quoteNumber;
   const vatRate = Number(doc.vatRate) || 0;
   const subtotal = doc.subtotal ?? doc.total;
   const paid = roundMoney(doc.paidAmount || 0);
@@ -99,7 +104,8 @@ function renderDocumentHtml({ kind = "invoice", doc, company = {} }) {
 
   const metaLines = [
     number ? `<div><strong>${e(number)}</strong></div>` : "",
-    `<div>${isInvoice ? "Issue date" : "Date"}: <strong>${e(formatDate(doc.issueDate))}</strong></div>`,
+    `<div>${isInvoice || isCredit ? "Issue date" : "Date"}: <strong>${e(formatDate(doc.issueDate))}</strong></div>`,
+    isCredit && doc.invoiceNumber ? `<div>Against invoice: <strong>${e(doc.invoiceNumber)}</strong></div>` : "",
     isInvoice && doc.dueDate ? `<div>Due date: <strong>${e(formatDate(doc.dueDate))}</strong></div>` : "",
     !isInvoice && doc.expiryDate ? `<div>Valid until: <strong>${e(formatDate(doc.expiryDate))}</strong></div>` : "",
     doc.reference ? `<div>Reference: <strong>${e(doc.reference)}</strong></div>` : "",
@@ -109,18 +115,18 @@ function renderDocumentHtml({ kind = "invoice", doc, company = {} }) {
   const totals = [
     vatRate > 0 ? `<div class="row"><span>Subtotal</span><span class="mono">${e(money(subtotal))}</span></div>` : "",
     vatRate > 0 ? `<div class="row"><span>VAT (${e(String(vatRate))}%)</span><span class="mono">${e(money(doc.taxTotal || 0))}</span></div>` : "",
-    `<div class="row ${isInvoice && paid > 0 ? "" : "grand"}"><span>${isInvoice ? "Total" : "Quote total"}</span><span class="mono">${e(money(doc.total || 0))}</span></div>`,
+    `<div class="row ${isInvoice && paid > 0 ? "" : "grand"}"><span>${isCredit ? "Credit total" : isInvoice ? "Total" : "Quote total"}</span><span class="mono">${e(money(doc.total || 0))}</span></div>`,
     isInvoice && paid > 0 ? `<div class="row"><span>Paid</span><span class="mono">−${e(money(paid))}</span></div>` : "",
     isInvoice && paid > 0 ? `<div class="row grand"><span>Balance due</span><span class="mono">${e(money(Math.max(0, balance)))}</span></div>` : "",
   ].join("");
 
-  const banks = isInvoice
+  const banks = isInvoice && !isCredit
     ? (issuer.bankAccounts || [])
         .map((a) => `<div class="bank">${a.label ? `<div class="bank-title">${e(a.label)}${a.currency ? ` (${e(a.currency)})` : ""}</div>` : ""}<pre>${e(a.details)}</pre></div>`)
         .join("")
     : "";
 
-  const stamp = doc.voided ? `<div class="stamp">VOID</div>` : isInvoice && !doc.draft && balance <= 0 && doc.total > 0 ? `<div class="stamp paid">PAID</div>` : "";
+  const stamp = doc.voided ? `<div class="stamp">VOID</div>` : isCredit && !doc.draft ? `<div class="stamp">CREDIT</div>` : isInvoice && !doc.draft && balance <= 0 && doc.total > 0 ? `<div class="stamp paid">PAID</div>` : "";
   const logo = company.logoDataUrl ? `<img class="logo" src="${e(company.logoDataUrl)}" alt="" />` : "";
   const legal = [issuer.legal, issuer.footer || doc.footer].filter(Boolean).join("\n");
 

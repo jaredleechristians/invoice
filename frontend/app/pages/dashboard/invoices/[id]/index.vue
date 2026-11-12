@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatCurrency, formatDate, lineTotal, STATUS_COLORS, statusLabel } from "~/utils/money";
+import { formatCurrency, formatDate, lineTotal, notifyCreditLimitWarning, STATUS_COLORS, statusLabel } from "~/utils/money";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -20,6 +20,8 @@ const { activeCompanyId, capi, cpost, cdelete, cdownload } = useCompanyApi();
 const { isAdmin, ensure } = useCompany();
 
 const invoice = ref<Invoice | null>(null);
+const creditNotes = ref<any[]>([]);
+const credit = ref<{ exceeded?: boolean; creditLimit?: number | null; outstanding?: number; currency?: string; available?: number | null } | null>(null);
 const loading = ref(false);
 const busy = ref("");
 const error = ref("");
@@ -32,6 +34,10 @@ async function load() {
   try {
     await ensure();
     invoice.value = await capi<Invoice>(`/invoices/${id.value}`);
+    creditNotes.value = (await capi<{ creditNotes: any[] }>(`/credit-notes?invoiceId=${id.value}`)).creditNotes;
+    credit.value = invoice.value.customerId
+      ? await capi(`/customers/${invoice.value.customerId}/credit`)
+      : null;
   } catch (e) {
     error.value = errMsg(e, "Failed to load invoice");
   } finally {
@@ -54,6 +60,8 @@ async function run(label: string, fn: () => Promise<void>) {
 const finalize = () =>
   run("finalize", async () => {
     invoice.value = await cpost<Invoice>(`/invoices/${id.value}/finalize`);
+    notifyCreditLimitWarning(invoice.value);
+    if (invoice.value.customerId) credit.value = await capi(`/customers/${invoice.value.customerId}/credit`);
   });
 
 const pdf = () =>
@@ -104,6 +112,7 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
         <UButton v-if="!invoice.voided" :to="`/dashboard/invoices/${invoice.id}/edit`" variant="soft" icon="i-lucide-pencil">Edit</UButton>
         <UButton v-if="invoice.draft" icon="i-lucide-check" :loading="busy === 'finalize'" @click="finalize">Publish</UButton>
         <UButton variant="soft" icon="i-lucide-file-down" :loading="busy === 'pdf'" @click="pdf">PDF</UButton>
+        <UButton v-if="!invoice.draft && !invoice.voided && invoice.outstanding > 0" variant="soft" color="neutral" icon="i-lucide-file-minus-2" :to="`/dashboard/credit-notes/new?invoice=${invoice.id}`">Credit note</UButton>
         <UButton variant="soft" color="neutral" icon="i-lucide-copy" :loading="busy === 'duplicate'" @click="duplicate">Duplicate</UButton>
         <UButton v-if="isAdmin && !invoice.draft && !invoice.voided" variant="ghost" color="warning" icon="i-lucide-ban" :loading="busy === 'void'" @click="voidInvoice">Void</UButton>
         <UButton v-if="isAdmin && (invoice.draft || !invoice.paidAmount)" variant="ghost" color="error" icon="i-lucide-trash" :loading="busy === 'delete'" @click="remove">Delete</UButton>
@@ -111,6 +120,13 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
     </PageHeader>
 
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
+    <UAlert
+      v-if="credit?.exceeded && credit.creditLimit != null"
+      color="warning"
+      variant="subtle"
+      title="This customer is over their credit limit"
+      :description="`${formatCurrency(credit.outstanding || 0, credit.currency)} outstanding against a ${formatCurrency(credit.creditLimit, credit.currency)} limit.`"
+    />
     <UAlert v-if="invoice?.voided" color="neutral" variant="subtle" :title="`Void${invoice.voidReason ? ': ' + invoice.voidReason : ''}`" />
 
     <div v-if="invoice" class="grid gap-4 md:grid-cols-3">
@@ -122,6 +138,10 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
         <p class="text-sm text-muted">Paid</p>
         <p class="text-2xl font-semibold tabular-nums">{{ formatCurrency(invoice.paidAmount, invoice.currency) }}</p>
       </UCard>
+      <UCard v-if="invoice.creditedAmount">
+        <p class="text-sm text-muted">Credited</p>
+        <p class="text-2xl font-semibold tabular-nums">{{ formatCurrency(invoice.creditedAmount, invoice.currency) }}</p>
+      </UCard>
       <UCard>
         <p class="text-sm text-muted">Outstanding</p>
         <p class="text-2xl font-semibold tabular-nums" :class="invoice.overdue ? 'text-error' : ''">{{ formatCurrency(invoice.outstanding, invoice.currency) }}</p>
@@ -130,6 +150,16 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
     </div>
 
     <InvoicePayments v-if="invoice && !invoice.draft" :invoice="invoice" @changed="onPaymentsChanged" />
+
+    <UCard v-if="invoice && creditNotes.length">
+      <template #header><span class="font-medium">Credit notes</span></template>
+      <ul class="divide-y divide-default text-sm">
+        <li v-for="n in creditNotes" :key="n.id" class="flex items-center justify-between py-2">
+          <NuxtLink :to="`/dashboard/credit-notes/${n.id}`" class="font-medium underline-offset-2 hover:underline">{{ n.creditNoteNumber || "Draft credit note" }}</NuxtLink>
+          <span class="text-muted">{{ n.status }} · {{ formatCurrency(n.total, n.currency) }}</span>
+        </li>
+      </ul>
+    </UCard>
 
     <LedgerEntries v-if="invoice && !invoice.draft" :invoice-id="invoice.id" />
 
