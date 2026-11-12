@@ -23,6 +23,8 @@ const assistantActions = require("../lib/assistantActions");
 const bankAccounts = require("../lib/bankAccounts");
 const bank = require("../lib/bankTransactions");
 const ledgerAccounts = require("../lib/ledger/accounts");
+const ledgerJournals = require("../lib/ledger/journals");
+const { catchUpCompany } = require("../lib/ledger/catchup");
 
 const router = express.Router();
 
@@ -234,6 +236,23 @@ company.post("/accounts", h((req) => ledgerAccounts.createLedgerAccount(...actor
 company.patch("/accounts/:accountId", h((req) => ledgerAccounts.updateLedgerAccount(...actor(req), req.params.accountId, req.body || {})));
 company.post("/accounts/:accountId/archive", h((req) => ledgerAccounts.archiveLedgerAccount(...actor(req), req.params.accountId)));
 company.post("/accounts/:accountId/unarchive", h((req) => ledgerAccounts.unarchiveLedgerAccount(...actor(req), req.params.accountId)));
+
+
+// ---------- journals and trial balance (1.5.0) ----------
+company.get("/journals", h(async (req) => ({
+  journals: await ledgerJournals.listJournals(req.companyId, {
+    accountId: req.query.accountId,
+    from: req.query.from,
+    to: req.query.to,
+    sourceType: req.query.sourceType,
+    sourceId: req.query.sourceId,
+    invoiceId: req.query.invoiceId,
+  }),
+})));
+company.get("/journals/:entryId", h((req) => ledgerJournals.getJournal(req.companyId, req.params.entryId)));
+company.get("/ledger/trial-balance", h((req) => ledgerJournals.trialBalance(req.companyId, { asOf: req.query.asOf })));
+company.post("/ledger/catch-up", h((req) => catchUpCompany(...actor(req))));
+
 
 company.get("/bank-imports", h(async (req) => ({ imports: await bank.listImports(req.companyId, { accountId: req.query.accountId }) })));
 company.post("/bank-imports/preview", h((req) => bank.previewImport(...actor(req), req.body || {})));

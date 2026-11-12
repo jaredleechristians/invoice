@@ -43,6 +43,8 @@ const error = ref("");
 const newCustomer = reactive({ open: false, name: "", email: "", saving: false });
 
 const isInvoice = computed(() => props.kind === "invoice");
+const baseCurrency = computed(() => company.value?.baseCurrency || "ZAR");
+const isForeign = computed(() => isInvoice.value && form.currency !== baseCurrency.value);
 const isDraft = computed(() => !props.initial || props.initial.draft !== false);
 const locked = computed(() => Boolean(props.initial && props.initial.paidAmount && props.initial.paidAmount > 0));
 
@@ -176,7 +178,8 @@ function submit(finalize: boolean) {
   if (!form.customerId) body.customerName = form.customerName;
   if (isInvoice.value) {
     body.dueDate = form.dueDate;
-    if (form.currency !== "ZAR") body.exchangeRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : null;
+    if (isForeign.value) body.exchangeRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : null;
+    else body.exchangeRate = null;
   }
   else body.expiryDate = form.expiryDate;
   emit("submit", { body, finalize });
@@ -229,8 +232,8 @@ function submit(finalize: boolean) {
         <UFormField v-else label="Valid until">
           <DatePicker v-model="form.expiryDate" block :presets="termPresets" />
         </UFormField>
-        <UFormField v-if="isInvoice && form.currency !== 'ZAR'" :label="`ZAR per ${form.currency} on issue date`" hint="Optional" help="Used to work out forex gain or loss when it is paid.">
-          <UInput v-model="form.exchangeRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.25" class="w-full" />
+        <UFormField v-if="isForeign" :label="`${baseCurrency} per ${form.currency} on issue date`" hint="Required to publish" help="The rate on the issue date, in the company base currency. Needed before a foreign invoice can be published.">
+          <UInput v-model="form.exchangeRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.25" class="w-full" required />
         </UFormField>
       </div>
     </UCard>

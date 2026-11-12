@@ -9,7 +9,10 @@ const { roundMoney, normalizeCurrency } = require("./money");
 const { fetchAll } = require("./db");
 const { toIsoDate, todayIso, inRange } = require("./dates");
 const { releaseTransaction } = require("./bankLinks");
-const { resolveExpenseAccount, defaultExpenseAccountId } = require("./ledger/accounts");
+const { resolveExpenseAccount, defaultExpenseAccountId, ensureChart } = require("./ledger/accounts");
+const { cleanExchangeRate } = require("./documents");
+const { expenseLines } = require("./ledger/rules");
+const { planPost, planReverse, sourceKey, nextVersion, ensureGoLiveDate, systemAccountsOf, baseCurrencyOf } = require("./ledger/post");
 
 // Receipts are stored in Firestore (separate doc) to avoid new infra; keep them small.
 const MAX_RECEIPT_BYTES = 700 * 1024;
@@ -112,22 +115,86 @@ async function normalizeExpense(companyId, body, company) {
   const date = toIsoDate(body.date) || todayIso();
   let categoryId = String(body.categoryId || "");
   let categoryName = "";
+  let accountId = "";
   if (categoryId) {
     const snap = await categoriesCol(companyId).doc(categoryId).get();
     if (deletedSnap(snap)) throw httpError(400, "Unknown expense category");
     categoryName = snap.data().name;
+    accountId = snap.data().accountId || defaultExpenseAccountId(categoryName);
   } else {
     categoryName = "Uncategorised";
+    accountId = defaultExpenseAccountId(categoryName);
+  }
+  const currency = normalizeCurrency(body.currency, company?.defaultCurrency || "ZAR");
+  const base = company?.baseCurrency || "ZAR";
+  const exchangeRate = currency === base ? null : cleanExchangeRate(body.exchangeRate);
+  if (currency !== base && !exchangeRate) {
+    throw httpError(400, "An exchange rate is required for a foreign-currency expense");
   }
   return {
     date,
     vendor: String(body.vendor || "").trim().slice(0, 200),
     categoryId,
     categoryName,
+    accountId,
     amount,
-    currency: normalizeCurrency(body.currency, company?.defaultCurrency || "ZAR"),
+    currency,
+    exchangeRate,
     reference: String(body.reference || "").trim().slice(0, 120),
     notes: String(body.notes || "").trim().slice(0, 2000),
+  };
+}
+
+async function loadLedgerCtx(companyId) {
+  await ensureChart(companyId);
+  const company = await loadCompanyData(companyId);
+  return { company, baseCurrency: baseCurrencyOf(company), systemAccounts: systemAccountsOf(company) };
+}
+
+function expenseFingerprint(e) {
+  return JSON.stringify({
+    date: e.date,
+    amount: e.amount,
+    currency: e.currency,
+    exchangeRate: e.exchangeRate || null,
+    accountId: e.accountId || "",
+    categoryId: e.categoryId || "",
+  });
+}
+
+async function planExpenseLedger(tx, companyId, { expenseId, doc, event, createdBy, currentLedger, reverseDate, ctx }) {
+  let reverse = { commit() {} };
+  if (currentLedger?.entryId && event !== "post") {
+    reverse = await planReverse(tx, companyId, {
+      entryId: currentLedger.entryId,
+      date: reverseDate || doc.date,
+      event,
+      createdBy,
+    });
+  }
+  const shouldPost = event === "post" || event === "edit" || event === "restore";
+  let post = { commit() {}, id: null, skipped: true };
+  let ledger = currentLedger || null;
+  if (shouldPost) {
+    const lines = expenseLines(doc, ctx);
+    const version = currentLedger?.entryId ? nextVersion(currentLedger) : 1;
+    post = await planPost(tx, companyId, {
+      sourceKey: sourceKey("expense", expenseId, version),
+      date: doc.date,
+      lines,
+      source: { type: "expense", id: expenseId, number: doc.vendor || "", event, version },
+      memo: doc.vendor || "Expense",
+      createdBy,
+      baseCurrency: ctx.baseCurrency,
+    });
+    ledger = { entryId: post.id, version };
+  }
+  return {
+    ledger,
+    commit(writeTx) {
+      reverse.commit(writeTx);
+      post.commit(writeTx);
+    },
   };
 }
 
@@ -180,11 +247,23 @@ async function createExpense(companyId, uid, email, role, body = {}) {
     updatedAt: now,
     createdBy: uid,
   };
+  const ctx = await loadLedgerCtx(companyId);
   const db = getDb();
-  const batch = db.batch();
-  batch.set(expensesCol(companyId).doc(id), doc);
-  if (receipt) batch.set(receiptsCol(companyId).doc(id), { ...receipt, uploadedAt: now });
-  await batch.commit();
+  await db.runTransaction(async (tx) => {
+    const posting = await planExpenseLedger(tx, companyId, {
+      expenseId: id,
+      doc,
+      event: "post",
+      createdBy: uid,
+      currentLedger: null,
+      ctx,
+    });
+    doc.ledger = posting.ledger;
+    tx.set(expensesCol(companyId).doc(id), doc);
+    if (receipt) tx.set(receiptsCol(companyId).doc(id), { ...receipt, uploadedAt: now });
+    posting.commit(tx);
+  });
+  await ensureGoLiveDate(companyId);
   await logAudit({ companyId, uid, email, action: "expense.create", payload: { expenseId: id, amount: data.amount, currency: data.currency } });
   return { id, ...doc };
 }
@@ -196,20 +275,38 @@ async function updateExpense(companyId, uid, email, role, expenseId, body = {}) 
   const data = await normalizeExpense(companyId, { ...existing, ...body }, company);
   const now = new Date().toISOString();
   const patch = { ...data, updatedAt: now };
-  const db = getDb();
-  const batch = db.batch();
-  if (body.receipt !== undefined) {
-    const receipt = decodeReceipt(body.receipt);
-    if (receipt) {
-      patch.receipt = { filename: receipt.filename, contentType: receipt.contentType, size: receipt.size };
-      batch.set(receiptsCol(companyId).doc(expenseId), { ...receipt, uploadedAt: now });
-    } else {
-      patch.receipt = null;
-      batch.delete(receiptsCol(companyId).doc(expenseId));
-    }
+  const receiptChange = body.receipt !== undefined ? decodeReceipt(body.receipt) : undefined;
+  if (receiptChange !== undefined) {
+    if (receiptChange) patch.receipt = { filename: receiptChange.filename, contentType: receiptChange.contentType, size: receiptChange.size };
+    else patch.receipt = null;
   }
-  batch.set(expensesCol(companyId).doc(expenseId), patch, { merge: true });
-  await batch.commit();
+  const merged = { ...existing, ...patch };
+  const shouldPost = expenseFingerprint(existing) !== expenseFingerprint(merged);
+  const ctx = shouldPost ? await loadLedgerCtx(companyId) : null;
+  const db = getDb();
+  await db.runTransaction(async (tx) => {
+    let posting = { ledger: existing.ledger, commit() {} };
+    if (shouldPost) {
+      posting = await planExpenseLedger(tx, companyId, {
+        expenseId,
+        doc: merged,
+        event: "edit",
+        createdBy: uid,
+        currentLedger: existing.ledger,
+        reverseDate: existing.date,
+        ctx,
+      });
+      patch.ledger = posting.ledger;
+      merged.ledger = posting.ledger;
+    }
+    if (receiptChange !== undefined) {
+      if (receiptChange) tx.set(receiptsCol(companyId).doc(expenseId), { ...receiptChange, uploadedAt: now });
+      else tx.delete(receiptsCol(companyId).doc(expenseId));
+    }
+    tx.set(expensesCol(companyId).doc(expenseId), patch, { merge: true });
+    posting.commit(tx);
+  });
+  if (shouldPost) await ensureGoLiveDate(companyId);
   await logAudit({ companyId, uid, email, action: "expense.update", payload: { expenseId } });
   return { ...existing, ...patch };
 }
@@ -218,10 +315,25 @@ async function deleteExpense(companyId, uid, email, role, expenseId) {
   assertCan(canDeleteRecords, role);
   const existing = await getExpense(companyId, expenseId);
   const db = getDb();
-  const batch = db.batch();
-  // Soft delete; the receipt is kept with it (and hidden, since the expense 404s).
-  batch.set(expensesCol(companyId).doc(expenseId), { ...deletion(uid), transactionId: "", bankAccountId: "" }, { merge: true });
-  await batch.commit();
+  const gone = { ...deletion(uid), transactionId: "", bankAccountId: "" };
+  if (existing.ledger?.entryId) {
+    const ctx = await loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      const posting = await planExpenseLedger(tx, companyId, {
+        expenseId,
+        doc: existing,
+        event: "delete",
+        createdBy: uid,
+        currentLedger: existing.ledger,
+        reverseDate: existing.date,
+        ctx,
+      });
+      tx.set(expensesCol(companyId).doc(expenseId), { ...gone, ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
+    });
+  } else {
+    await expensesCol(companyId).doc(expenseId).set(gone, { merge: true });
+  }
   if (existing.transactionId) await releaseTransaction(companyId, existing.transactionId);
   await logAudit({ companyId, uid, email, action: "expense.delete", payload: { expenseId, amount: existing.amount, currency: existing.currency } });
 }
@@ -248,4 +360,6 @@ module.exports = {
   deleteExpense,
   getReceipt,
   decodeReceipt,
+  planExpenseLedger,
+  loadLedgerCtx,
 };

@@ -66,7 +66,7 @@ test("MCP needs a valid API key", async () => {
 test("read key: read tools only, real data", async () => {
   const client = await httpClient(readKey);
   const names = (await client.listTools()).tools.map((t) => t.name);
-  assert.ok(names.includes("list_invoices") && names.includes("get_receivables") && names.includes("get_reports"));
+  assert.ok(names.includes("list_invoices") && names.includes("get_receivables") && names.includes("get_reports") && names.includes("list_journals") && names.includes("get_trial_balance"));
   assert.ok(!names.some((n) => /^(create|update|record|reconcile|publish|void|delete|restore|undo)_/.test(n)), "no write tools for read keys");
   assert.ok(!names.some((n) => /publish|void|delete|finalize/.test(n)));
 
@@ -87,6 +87,7 @@ test("read key: read tools only, real data", async () => {
     ["get_reports", { from: "2026-01-01", to: "2026-12-31" }], ["list_expenses", {}], ["list_expense_categories", {}], ["list_payments", {}],
     ["list_bank_accounts", {}], ["list_quotes", {}], ["list_products", {}], ["list_bank_transactions", { status: "unreconciled" }], ["list_customers", {}],
     ["get_customer", { customerId }], ["get_invoice", { invoiceId: publishedId }], ["get_customer_statement", { customerId, from: "2026-01-01", to: "2026-12-31" }],
+    ["list_journals", { invoiceId: publishedId }], ["get_trial_balance", { asOf: "2026-12-31" }],
   ]) {
     const r = await client.callTool({ name, arguments: args });
     assert.ok(!r.isError, `${name}: ${r.content[0].text}`);

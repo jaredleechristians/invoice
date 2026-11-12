@@ -22,6 +22,7 @@ const reports = require("./reports");
 const bankAccounts = require("./bankAccounts");
 const bank = require("./bankTransactions");
 const ledgerAccounts = require("./ledger/accounts");
+const ledgerJournals = require("./ledger/journals");
 const { buildStatement } = require("./statements");
 const { listReceivables } = require("./receivables");
 const { canWriteRecords } = require("./permissions");
@@ -89,13 +90,30 @@ function buildMcpServer(ctx) {
     return pick(c, ["id", "name", "legalName", "defaultCurrency", "baseCurrency", "currencies", "vatRegistered", "vatRate", "taxYearEndMonth", "paymentTermsDays", "invoicePrefix", "quotePrefix"]);
   });
 
-  read("list_accounts", "Chart of accounts (ledger): code, name, type (asset, liability, equity, income, expense), system and bank accounts. Read only; nothing posts to the ledger yet.", {
+  read("list_accounts", "Chart of accounts (ledger): code, name, type (asset, liability, equity, income, expense), system and bank accounts.", {
     type: z.enum(["asset", "liability", "equity", "income", "expense"]).optional(), includeArchived: z.boolean().optional(), ...PAGE,
   }, async (a) => {
     let rows = await ledgerAccounts.listLedgerAccounts(ctx.companyId, { includeArchived: Boolean(a.includeArchived) });
     if (a.type) rows = rows.filter((r) => r.type === a.type);
     return page(rows.map((r) => pick(r, ["id", "code", "name", "type", "subtype", "systemKey", "bankAccountId", "currency", "active"])), { limit: 100, ...a });
   });
+
+
+  read("list_journals", "Ledger journal entries, oldest first. Filter by account, date range, or source document (invoice, payment, expense).", {
+    accountId: ID.optional(), from: ISO.optional(), to: ISO.optional(),
+    sourceType: z.enum(["invoice", "payment", "expense"]).optional(), sourceId: ID.optional(), invoiceId: ID.optional(), ...PAGE,
+  }, async (a) => {
+    const rows = await ledgerJournals.listJournals(ctx.companyId, a);
+    return page(rows.map((e) => ({
+      id: e.id, number: e.number, date: e.date, kind: e.kind, memo: e.memo, source: e.source, sourceKey: e.sourceKey,
+      totalCents: e.totalCents, baseCurrency: e.baseCurrency, reversed: e.reversed, reversesId: e.reversesId,
+      lines: (e.lines || []).map((l) => pick(l, ["accountId", "debit", "credit", "currency", "foreignAmount", "rate", "description", "customerId"])),
+    })), a);
+  });
+
+  read("get_trial_balance", "Minimal trial balance in the company base currency as at a date (inclusive). Phase 1 check/report; full financial reports are later.", {
+    asOf: ISO.optional(),
+  }, async (a) => ledgerJournals.trialBalance(ctx.companyId, { asOf: a.asOf }));
 
   read("list_customers", "Customers, optionally filtered by name or email.", { q: z.string().max(100).optional(), ...PAGE }, async (a) => {
     const rows = await customers.listCustomers(ctx.companyId, { q: a.q });

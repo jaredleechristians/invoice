@@ -14,6 +14,7 @@ function normalizeLines(items) {
     const unitPrice = roundMoney(item?.unitPrice ?? 0);
     return {
       productId: String(item?.productId || ""),
+      accountId: String(item?.accountId || ""),
       description: String(item?.description ?? "").slice(0, 500),
       note: String(item?.note ?? "").slice(0, 1000),
       qty,
@@ -112,8 +113,43 @@ function pickCurrency(body, existing, company, customer) {
   return existing.currency || customer?.currency || company?.defaultCurrency || "ZAR";
 }
 
+
+/** Stamp each line with the product's income account (or the services default). */
+async function stampLineAccounts(companyId, items) {
+  const { defaultIncomeAccountId } = require("./ledger/accounts");
+  const lines = normalizeLines(items);
+  const ids = [...new Set(lines.map((l) => l.productId).filter(Boolean))];
+  const products = {};
+  if (ids.length) {
+    const { getDb } = require("./firebase");
+    const { companyRef } = require("./refs");
+    const col = companyRef(getDb(), companyId).collection("products");
+    await Promise.all(
+      ids.map(async (id) => {
+        const snap = await col.doc(id).get();
+        if (snap.exists && !snap.data().deletedAt) products[id] = { id: snap.id, ...snap.data() };
+      })
+    );
+  }
+  return lines.map((line) => {
+    const product = line.productId ? products[line.productId] : null;
+    const accountId = line.accountId || product?.incomeAccountId || defaultIncomeAccountId(product?.kind);
+    return { ...line, accountId };
+  });
+}
+
+/** Optional positive rate (base per 1 unit). Empty becomes null. */
+function cleanExchangeRate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) throw httpError(400, "Exchange rate must be a positive number");
+  return Math.round(n * 1e6) / 1e6;
+}
+
 module.exports = {
   normalizeLines,
+  stampLineAccounts,
+  cleanExchangeRate,
   companyVatRate,
   totalsFor,
   customerFields,

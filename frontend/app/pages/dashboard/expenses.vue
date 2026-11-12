@@ -12,6 +12,7 @@ type Expense = {
   categoryName: string;
   amount: number;
   currency: string;
+  exchangeRate?: number | null;
   reference?: string;
   notes?: string;
   receipt?: { filename: string; contentType: string; size: number } | null;
@@ -21,6 +22,8 @@ const MAX_RECEIPT = 700 * 1024;
 
 const { activeCompanyId, capi, cpost, cpatch, cdelete, copen } = useCompanyApi();
 const { currencies, company, ensure, isAdmin } = useCompany();
+const baseCurrency = computed(() => company.value?.baseCurrency || "ZAR");
+const isForeignExpense = computed(() => form.currency !== baseCurrency.value);
 
 const expenses = ref<Expense[]>([]);
 const categories = ref<Category[]>([]);
@@ -54,6 +57,7 @@ const blank = () => ({
   categoryId: "",
   amount: "",
   currency: company.value?.defaultCurrency || "ZAR",
+  exchangeRate: "" as string | number,
   reference: "",
   notes: "",
 });
@@ -113,7 +117,7 @@ function reset() {
 
 function edit(e: Expense) {
   editingId.value = e.id;
-  Object.assign(form, { date: e.date, vendor: e.vendor, categoryId: e.categoryId, amount: String(e.amount), currency: e.currency, reference: e.reference || "", notes: e.notes || "" });
+  Object.assign(form, { date: e.date, vendor: e.vendor, categoryId: e.categoryId, amount: String(e.amount), currency: e.currency, exchangeRate: e.exchangeRate ? Number(e.exchangeRate) : "", reference: e.reference || "", notes: e.notes || "" });
   receipt.value = null;
   removeReceipt.value = false;
   formError.value = "";
@@ -126,6 +130,8 @@ async function save() {
   try {
     const wasEditing = Boolean(editingId.value);
     const body: Record<string, unknown> = { ...form, amount: Number(form.amount) };
+    if (isForeignExpense.value) body.exchangeRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : null;
+    else body.exchangeRate = null;
     if (receipt.value) body.receipt = receipt.value;
     else if (removeReceipt.value) body.receipt = null;
     if (editingId.value) await cpatch(`/expenses/${editingId.value}`, body);
@@ -276,8 +282,12 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
               <AppSelect v-model="form.currency" searchable :options="currencies.map((c) => ({ label: c, value: c }))" />
             </UFormField>
           </div>
+          <UFormField v-if="isForeignExpense" :label="`${baseCurrency} per ${form.currency}`" hint="Required" help="Rate on the expense date, in the company base currency.">
+            <UInput v-model="form.exchangeRate" type="number" step="0.0001" min="0" placeholder="e.g. 18.25" class="w-full" required />
+          </UFormField>
           <UFormField label="Reference"><UInput v-model="form.reference" class="w-full" /></UFormField>
           <UFormField label="Notes"><UTextarea v-model="form.notes" :rows="2" class="w-full" /></UFormField>
+          <LedgerEntries v-if="editingId" source-type="expense" :source-id="editingId" />
           <UFormField label="Receipt (PDF or image, ≤ 700 KB)">
             <div class="space-y-2">
               <UFileUpload

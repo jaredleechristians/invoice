@@ -18,6 +18,7 @@ test.before(async () => {
     finalize: true,
     customerName: "Client",
     currency: "USD",
+    exchangeRate: 18,
     dueDate: "2099-01-01",
     items: [
       { description: "Sprint 1", qty: 1, unitPrice: 2000 },

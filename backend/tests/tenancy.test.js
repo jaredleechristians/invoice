@@ -175,6 +175,7 @@ test("invoice PDF HTML picks the bank account matching the invoice currency", as
   const inv = await call(ALICE, "POST", `/companies/${aliceCo}/invoices`, {
     finalize: true,
     customerId: cust.data.id,
+    exchangeRate: 18,
     items: [{ description: "Sprint", qty: 1, unitPrice: 2000 }],
   });
   assert.equal(inv.data.currency, "USD", "customer default currency is used");

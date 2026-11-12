@@ -131,6 +131,8 @@ watch([activeCompanyId, id, useDataVersion()], load, { immediate: true });
 
     <InvoicePayments v-if="invoice && !invoice.draft" :invoice="invoice" @changed="onPaymentsChanged" />
 
+    <LedgerEntries v-if="invoice && !invoice.draft" :invoice-id="invoice.id" />
+
     <UCard v-if="invoice">
       <template #header><span class="font-medium">Details</span></template>
       <div class="grid gap-6 md:grid-cols-2 text-sm">

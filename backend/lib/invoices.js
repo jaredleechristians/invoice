@@ -7,18 +7,23 @@ const { invoiceTotal, roundMoney } = require("./money");
 const { invoiceStatus } = require("./status");
 const { canDeleteRecords, canWriteRecords, assertCan } = require("./permissions");
 const { logAudit } = require("./audit");
-const { allocateNumber } = require("./numbering");
+const { planNumber } = require("./numbering");
 const { fetchAll } = require("./db");
 const { paymentAccounts } = require("./bankAccounts");
 const { toIsoDate, todayIso, addDaysIso } = require("./dates");
 const {
   normalizeLines,
+  stampLineAccounts,
+  cleanExchangeRate,
   companyVatRate,
   totalsFor,
   customerFields,
   issuerSnapshot,
   pickCurrency,
 } = require("./documents");
+const { ensureChart } = require("./ledger/accounts");
+const { invoiceLines } = require("./ledger/rules");
+const { planPost, planReverse, sourceKey, nextVersion, systemAccountsOf, baseCurrencyOf, ensureGoLiveDate } = require("./ledger/post");
 
 function invoicesCol(db, companyId) {
   return companyRef(db, companyId).collection("invoices");
@@ -47,14 +52,6 @@ function withComputed(invoice, now = new Date()) {
   };
 }
 
-/** Optional ZAR per 1 unit of the invoice currency on the invoice date (null if unset). */
-function cleanExchangeRate(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) throw httpError(400, "Exchange rate must be a positive number");
-  return Math.round(n * 1e6) / 1e6;
-}
-
 /**
  * Company settings for documents. bankAccounts comes from the bank accounts
  * collection (accounts marked "Show on invoices"), not the old settings field.
@@ -65,6 +62,70 @@ async function loadCompany(companyId) {
   if (!snap.exists) throw httpError(404, "Company not found");
   const data = snap.data();
   return { ...data, bankAccounts: await paymentAccounts(companyId, data) };
+}
+
+async function loadLedgerCtx(companyId) {
+  await ensureChart(companyId);
+  const snap = await companyRef(getDb(), companyId).get();
+  const company = snap.exists ? snap.data() : {};
+  return { company, baseCurrency: baseCurrencyOf(company), systemAccounts: systemAccountsOf(company) };
+}
+
+function ledgerFingerprint(inv) {
+  return JSON.stringify({
+    issueDate: inv.issueDate,
+    currency: inv.currency,
+    exchangeRate: inv.exchangeRate || null,
+    customerId: inv.customerId || "",
+    vatRate: inv.vatRate ?? 0,
+    subtotal: inv.subtotal,
+    taxTotal: inv.taxTotal,
+    total: inv.total,
+    items: (inv.items || []).map((i) => ({
+      accountId: i.accountId || "",
+      qty: i.qty,
+      unitPrice: i.unitPrice,
+      taxable: i.taxable !== false,
+    })),
+  });
+}
+
+async function planInvoiceLedger(tx, companyId, { invoiceId, doc, event, createdBy, currentLedger, reverseDate, postDate, ctx }) {
+  let reverse = { commit() {} };
+  if (currentLedger?.entryId && event !== "post") {
+    reverse = await planReverse(tx, companyId, {
+      entryId: currentLedger.entryId,
+      date: reverseDate || doc.issueDate,
+      event,
+      createdBy,
+    });
+  }
+  const shouldPost = event === "post" || event === "edit" || event === "restore";
+  let post = { commit() {}, id: null, skipped: true };
+  let ledger = currentLedger || null;
+  if (shouldPost) {
+    const lines = invoiceLines(doc, ctx);
+    if (lines.length) {
+      const version = currentLedger?.entryId ? nextVersion(currentLedger) : 1;
+      post = await planPost(tx, companyId, {
+        sourceKey: sourceKey("invoice", invoiceId, version),
+        date: postDate || doc.issueDate,
+        lines,
+        source: { type: "invoice", id: invoiceId, number: doc.invoiceNumber || "", event, version },
+        memo: `${doc.invoiceNumber || "Invoice"} ${doc.customerName || ""}`.trim(),
+        createdBy,
+        baseCurrency: ctx.baseCurrency,
+      });
+      ledger = { entryId: post.id, version };
+    }
+  }
+  return {
+    ledger,
+    commit(writeTx) {
+      reverse.commit(writeTx);
+      post.commit(writeTx);
+    },
+  };
 }
 
 async function listInvoices(companyId, { q, status, customerId, currency, limit } = {}) {
@@ -109,13 +170,17 @@ async function requireInvoice(companyId, invoiceId) {
   return inv;
 }
 
-function assertFinalizable(doc) {
+function assertFinalizable(doc, company = {}) {
   const lines = (doc.items || []).filter((i) => String(i.description || "").trim());
   if (!lines.length) throw httpError(400, "Add at least one line item before publishing");
   if (!doc.customerId && !String(doc.billTo || doc.customerName || "").trim()) {
     throw httpError(400, "Pick a customer before publishing");
   }
   if (roundMoney(doc.total) < 0) throw httpError(400, "Invoice total cannot be negative");
+  const base = company.baseCurrency || "ZAR";
+  if ((doc.currency || base) !== base && !doc.exchangeRate) {
+    throw httpError(400, "An exchange rate is required before publishing a foreign-currency invoice");
+  }
 }
 
 async function createInvoice(companyId, uid, email, role, body = {}) {
@@ -129,13 +194,14 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
 
   const cust = await customerFields(companyId, body);
   const currency = pickCurrency(body, {}, company, cust.customer);
-  const items = normalizeLines(body.items);
+  const items = await stampLineAccounts(companyId, body.items);
   const vatRate = body.vatRate !== undefined && company.vatRegistered ? Number(body.vatRate) || 0 : companyVatRate(company);
   const totals = totalsFor(items, vatRate);
   const issueDate = toIsoDate(body.issueDate) || todayIso();
   const terms = company.paymentTermsDays ?? 30;
   const dueDate =
     body.dueDate !== undefined ? toIsoDate(body.dueDate) || String(body.dueDate || "") : addDaysIso(issueDate, terms);
+  const base = company.baseCurrency || "ZAR";
 
   const doc = {
     invoiceNumber: "",
@@ -152,7 +218,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     items,
     vatRate,
     ...totals,
-    exchangeRate: currency === "ZAR" ? null : cleanExchangeRate(body.exchangeRate),
+    exchangeRate: currency === base ? null : cleanExchangeRate(body.exchangeRate),
     notes: body.notes !== undefined ? String(body.notes || "") : company.defaultNotes || "",
     footer: String(body.footer || ""),
     banking: body.banking || null,
@@ -167,15 +233,41 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     createdBy: uid,
   };
 
-  if (!draft) {
-    assertFinalizable(doc);
-    doc.invoiceNumber = body.invoiceNumber ? String(body.invoiceNumber) : await allocateNumber(companyId, "invoices");
+  if (draft) {
+    const computed = withComputed(doc);
+    await invoicesCol(db, companyId).doc(id).set({ ...doc, status: computed.status });
+  } else {
+    assertFinalizable(doc, company);
     doc.issuer = doc.payload ? null : issuerSnapshot(company, currency);
     doc.finalizedAt = now;
+    const ctx = await loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      let commitNumber = null;
+      if (body.invoiceNumber) {
+        doc.invoiceNumber = String(body.invoiceNumber);
+      } else {
+        const planned = await planNumber(tx, companyId, "invoices");
+        doc.invoiceNumber = planned.number;
+        commitNumber = planned.commit;
+      }
+      const posting = await planInvoiceLedger(tx, companyId, {
+        invoiceId: id,
+        doc,
+        event: "post",
+        createdBy: uid,
+        currentLedger: null,
+        postDate: doc.issueDate,
+        ctx,
+      });
+      if (commitNumber) commitNumber(tx);
+      const computed = withComputed(doc);
+      tx.set(invoicesCol(db, companyId).doc(id), { ...doc, status: computed.status, ledger: posting.ledger });
+      posting.commit(tx);
+      doc.ledger = posting.ledger;
+    });
+    await ensureGoLiveDate(companyId);
   }
 
-  const computed = withComputed(doc);
-  await invoicesCol(db, companyId).doc(id).set({ ...doc, status: computed.status });
   await logAudit({
     companyId,
     uid,
@@ -194,6 +286,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
   if (existing.voided) throw httpError(409, "Void invoices cannot be edited");
   const db = getDb();
   const company = await loadCompany(companyId);
+  const base = company.baseCurrency || "ZAR";
   const patch = { updatedAt: new Date().toISOString() };
 
   for (const key of EDITABLE) if (body[key] !== undefined) patch[key] = body[key];
@@ -213,12 +306,19 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
       throw httpError(409, "Cannot change currency after payments were recorded");
     }
     patch.currency = currency;
+    if (currency === base) patch.exchangeRate = null;
   }
-  if (body.exchangeRate !== undefined) patch.exchangeRate = cleanExchangeRate(body.exchangeRate);
+  if (body.exchangeRate !== undefined) {
+    if (roundMoney(existing.paidAmount) > 0 && cleanExchangeRate(body.exchangeRate) !== (existing.exchangeRate || null)) {
+      throw httpError(409, "Cannot change the exchange rate after payments were recorded");
+    }
+    const currency = patch.currency || existing.currency;
+    patch.exchangeRate = currency === base ? null : cleanExchangeRate(body.exchangeRate);
+  }
   if (body.issueDate !== undefined) patch.issueDate = toIsoDate(body.issueDate) || existing.issueDate;
   if (body.dueDate !== undefined) patch.dueDate = toIsoDate(body.dueDate) || String(body.dueDate || "");
   if (body.items !== undefined || body.vatRate !== undefined) {
-    const items = body.items !== undefined ? normalizeLines(body.items) : existing.items || [];
+    const items = body.items !== undefined ? await stampLineAccounts(companyId, body.items) : existing.items || [];
     const vatRate =
       body.vatRate !== undefined ? (company.vatRegistered ? Number(body.vatRate) || 0 : 0) : existing.vatRate ?? 0;
     Object.assign(patch, { items, vatRate }, totalsFor(items, vatRate));
@@ -230,9 +330,8 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
   const merged = { ...existing, ...patch };
   const wantFinalize = existing.draft && (body.finalize === true || body.draft === false);
   if (wantFinalize) {
-    assertFinalizable(merged);
+    assertFinalizable(merged, company);
     patch.draft = false;
-    patch.invoiceNumber = existing.invoiceNumber || (await allocateNumber(companyId, "invoices"));
     patch.issuer = issuerSnapshot(company, merged.currency || "ZAR");
     patch.finalizedAt = patch.updatedAt;
     Object.assign(merged, patch);
@@ -242,10 +341,54 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     merged.issuer = patch.issuer;
   }
 
-  const computed = withComputed(merged);
-  await invoicesCol(db, companyId)
-    .doc(invoiceId)
-    .set({ ...patch, status: computed.status }, { merge: true });
+  if (!existing.draft && !wantFinalize) {
+    const currency = merged.currency || base;
+    if (currency !== base && !merged.exchangeRate) {
+      throw httpError(400, "An exchange rate is required before publishing a foreign-currency invoice");
+    }
+  }
+
+  const shouldPost = wantFinalize || (!existing.draft && ledgerFingerprint(existing) !== ledgerFingerprint(merged));
+  if (!shouldPost && !wantFinalize) {
+    const computed = withComputed(merged);
+    await invoicesCol(db, companyId)
+      .doc(invoiceId)
+      .set({ ...patch, status: computed.status }, { merge: true });
+  } else {
+    const ctx = await loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(invoicesCol(db, companyId).doc(invoiceId));
+      if (!snap.exists || snap.data().deletedAt) throw httpError(404, "Invoice not found");
+      if (snap.data().voided) throw httpError(409, "Void invoices cannot be edited");
+      let commitNumber = null;
+      if (wantFinalize && !merged.invoiceNumber) {
+        const planned = await planNumber(tx, companyId, "invoices");
+        patch.invoiceNumber = planned.number;
+        merged.invoiceNumber = planned.number;
+        commitNumber = planned.commit;
+      } else if (wantFinalize) {
+        patch.invoiceNumber = existing.invoiceNumber;
+      }
+      Object.assign(merged, patch);
+      const posting = await planInvoiceLedger(tx, companyId, {
+        invoiceId,
+        doc: merged,
+        event: wantFinalize ? "post" : "edit",
+        createdBy: uid,
+        currentLedger: wantFinalize ? null : existing.ledger,
+        reverseDate: existing.issueDate,
+        postDate: merged.issueDate,
+        ctx,
+      });
+      const computed = withComputed(merged);
+      if (commitNumber) commitNumber(tx);
+      tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...patch, status: computed.status, ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
+      merged.ledger = posting.ledger;
+    });
+    await ensureGoLiveDate(companyId);
+  }
+
   await logAudit({
     companyId,
     uid,
@@ -253,7 +396,7 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     action: wantFinalize ? "invoice.finalize" : "invoice.update",
     payload: { invoiceId, invoiceNumber: merged.invoiceNumber, total: merged.total },
   });
-  return computed;
+  return withComputed(merged);
 }
 
 async function finalizeInvoice(companyId, uid, email, role, invoiceId) {
@@ -278,8 +421,22 @@ async function voidInvoice(companyId, uid, email, role, invoiceId, { reason = ""
   }
   const db = getDb();
   const now = new Date().toISOString();
+  const voidDate = todayIso();
   const patch = { voided: true, voidedAt: now, voidedBy: uid, voidReason: String(reason || "").slice(0, 500), status: "void", updatedAt: now };
-  await invoicesCol(db, companyId).doc(invoiceId).set(patch, { merge: true });
+  const ctx = await loadLedgerCtx(companyId);
+  await db.runTransaction(async (tx) => {
+    const posting = await planInvoiceLedger(tx, companyId, {
+      invoiceId,
+      doc: existing,
+      event: "void",
+      createdBy: uid,
+      currentLedger: existing.ledger,
+      reverseDate: voidDate,
+      ctx,
+    });
+    tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...patch, ledger: posting.ledger }, { merge: true });
+    posting.commit(tx);
+  });
   await logAudit({ companyId, uid, email, action: "invoice.void", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, reason: patch.voidReason } });
   return withComputed({ ...existing, ...patch });
 }
@@ -300,6 +457,7 @@ async function duplicateInvoice(companyId, uid, email, role, invoiceId) {
     notes: src.notes || "",
     footer: src.footer || "",
     reference: src.reference || "",
+    exchangeRate: src.exchangeRate,
     duplicatedFrom: invoiceId,
   });
 }
@@ -312,7 +470,26 @@ async function deleteInvoice(companyId, uid, email, role, invoiceId) {
   }
   const db = getDb();
   // Soft delete: the document (and its number) stays, hidden everywhere.
-  await invoicesCol(db, companyId).doc(invoiceId).set(deletion(uid), { merge: true });
+  // Reverse a published (non-void) invoice on the original issue date.
+  const shouldReverse = !existing.draft && !existing.voided && existing.ledger?.entryId;
+  if (shouldReverse) {
+    const ctx = await loadLedgerCtx(companyId);
+    await db.runTransaction(async (tx) => {
+      const posting = await planInvoiceLedger(tx, companyId, {
+        invoiceId,
+        doc: existing,
+        event: "delete",
+        createdBy: uid,
+        currentLedger: existing.ledger,
+        reverseDate: existing.issueDate,
+        ctx,
+      });
+      tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...deletion(uid), ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
+    });
+  } else {
+    await invoicesCol(db, companyId).doc(invoiceId).set(deletion(uid), { merge: true });
+  }
   await logAudit({ companyId, uid, email, action: "invoice.delete", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, draft: existing.draft } });
 }
 
@@ -328,5 +505,7 @@ module.exports = {
   deleteInvoice,
   withComputed,
   loadCompany,
+  loadLedgerCtx,
+  planInvoiceLedger,
   cleanExchangeRate,
 };
