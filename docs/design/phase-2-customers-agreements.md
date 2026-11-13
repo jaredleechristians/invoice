@@ -1,6 +1,6 @@
 # Phase 2: Customers, agreements and time (design note)
 
-Status: decisions recorded, 13 Nov 2026. Docs PR is not a merge request for production.
+Status: decisions recorded, 13 Nov 2026 (outgoing email setup added). Docs PR is not a merge request for production.
 Base: v1.6.1 on `main` (production is on 1.6.1). Phase 1 ledger is live. 1.7.0 is implemented in PR #18 (not merged).
 Roadmap: Phase 2 of the accounting roadmap — customers, agreements and time. Build on the existing customers collection; do not replace it.
 
@@ -181,7 +181,25 @@ A manual send of a scheduled step records that step and prevents the scheduler f
 
 The app still shows an overdue list (using the customer's terms). Publishing or sending a reminder email is never an unattended assistant action. Automatic reminder email (when enabled) is an app/scheduler action. Invoices and statements are not auto-emailed.
 
-1.7.0 and 1.8.0 do not implement reminders. 1.10.0 will also need an outbound email path (the app does not send mail today); the from-address and provider are an implementation choice for that slice.
+1.7.0 and 1.8.0 do not implement reminders. Automatic reminders cannot be turned on until outgoing email (section 3.8) is configured and a test send has succeeded.
+
+### 3.8 Outgoing email (Settings, 1.10.0)
+
+The app does not send email today. Member invites are a copy-the-link flow ("Invites aren't emailed yet"). Invoices and statements are downloaded as PDF/HTML; emailing them is still out of scope. Sign-in is Google via Firebase Auth; the app does not send its own auth mail. There is no mailer library or SMTP/API integration in the backend.
+
+1.10.0 adds a per-company outgoing mail setup in Settings so reminders have a real from-address. The same setup can later be reused to email invoices or invites; that is not part of 1.10.0.
+
+Settings fields (owners/admins only):
+- From name
+- From address
+- Reply-to (optional; defaults to the from address)
+- Provider: **SMTP** (works with Google Workspace and most mailboxes) or an API (**Resend** is the simpler fit; **Amazon SES** is the alternative if the company already uses AWS)
+- Provider credentials (SMTP host/port/username/password, or an API key)
+- A **test send** button (to an address the user types)
+
+Credentials stay server-side and are encrypted at rest with a server env secret (for example `MAIL_SECRET`). They are never sent to the client, never written to Firestore in plain text, and never returned by the API. The UI only shows whether mail is configured and verified (for example "SMTP configured, last verified …"), not the password or API key. Changing the password or key is a write of a new secret, not a read of the old one.
+
+A successful test send records `verifiedAt`. `paymentReminders.enabled` cannot be set to true until sending is configured and verified. If credentials are later cleared or fail, automatic sending turns off (or cannot stay on) until a new test send succeeds. Manual reminder send uses the same configured mailer and is also blocked until verification has succeeded.
 
 ## 4. Credit notes and the ledger (1.7.0)
 
@@ -252,7 +270,7 @@ Hours rolled in from the previous period are added in full; they are not prorate
 
 ## 8. Testing
 
-Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. 1.8.0 adds time entries, invoicing ad hoc hours, and the once-only billed mark (including void/delete/restore of the invoice). 1.9.0 covers proration, rollover, overage-on-the-next-invoice, and draft vs auto-publish. 1.10.0 covers the reminder schedule (default off), logging, no duplicate steps, and manual send.
+Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. 1.8.0 adds time entries, invoicing ad hoc hours, and the once-only billed mark (including void/delete/restore of the invoice). 1.9.0 covers proration, rollover, overage-on-the-next-invoice, and draft vs auto-publish. 1.10.0 covers the reminder schedule (default off), logging, no duplicate steps, manual send, outgoing mail settings (encrypted credentials, test send), and refusing to enable automatic reminders until a test send has succeeded.
 
 ## 9. Decisions (answered 13 Nov 2026)
 
@@ -266,7 +284,7 @@ Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` agains
    A setting on each agreement. Default remains drafts (`autoPublish: false`) unless the agreement turns auto-publish on.
 
 4. **What do payment reminders do?**
-   Reminders can email automatically on a company schedule (days before or after the due date). The setting defaults to **off**, so nothing emails customers until it is turned on. Each send is logged against the invoice; the same step is never sent twice. Also include a manual send and the overdue list. Invoices and statements stay manual.
+   Reminders can email automatically on a company schedule (days before or after the due date). The setting defaults to **off**, so nothing emails customers until it is turned on. Each send is logged against the invoice; the same step is never sent twice. Also include a manual send and the overdue list. Invoices and statements stay manual. Outgoing mail is a per-company Settings setup (from name and address, reply-to, SMTP or an API such as Resend or SES, test send). Credentials are encrypted server-side. Automatic reminders cannot be enabled until sending is configured and verified.
 
 5. **Credit limit: warn or block publish?**
    Warn; owners and admins can still publish. This is what PR #18 already does. No change to 1.7.0.
@@ -284,7 +302,7 @@ Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` agains
 | **1.7.0** | Credit notes (ledger reversals, apply to one invoice, void/delete/restore, PDF). Customer payment terms and credit limits. Debtors age analysis extended (credits + limits). Statements include credits. | PR #18. Uses decided behaviour for questions 5 and 6. No reminders. No catch-up/backfill (credits only apply when a user issues one). |
 | **1.8.0** | Time entries (internal, manual or assistant). Ad hoc billable hours, invoice them, mark billed so they cannot be billed twice. | Does not depend on agreement code. |
 | **1.9.0** | Agreements, recurring invoices, agreement periods (hours used and remaining, proration, rollover, overage on the next invoice), hours reports. | Decisions 1, 2, 3 and 7 are recorded above. |
-| **1.10.0** | Payment reminders: overdue list, manual send, company schedule default off, log each send, no duplicate steps. | Decision 4 is recorded above. Needs an outbound email path. |
+| **1.10.0** | Payment reminders: overdue list, manual send, company schedule default off, log each send, no duplicate steps. Per-company outgoing email in Settings (from name/address, reply-to, SMTP or Resend/SES, test send, encrypted credentials). Automatic reminders stay disabled until mail is configured and verified. | Decision 4 is recorded above. The app does not send email today (invites are copy-link; invoices are not emailed). |
 
 Do not merge or deploy a slice until Jared authorises it. Firestore rules do not need new match blocks for these collections (the existing catch-all already allows member reads and denies client writes); any new composite indexes must be real composites, not single-field ones.
 
