@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { agreementFormLines, agreementLinesPayload, type AgreementFormLine, type AgreementLineInput } from "~/utils/agreementValue";
+
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
 type Customer = { id: string; name: string; currency?: string };
@@ -9,6 +11,7 @@ type Agreement = {
   status: string;
   customerId: string;
   serviceId: string;
+  lines?: AgreementLineInput[];
   startDate: string;
   endDate?: string;
   period: "month" | "quarter";
@@ -34,20 +37,17 @@ const saving = ref(false);
 const form = reactive({
   name: "",
   customerId: "",
-  serviceId: "",
+  lines: [] as AgreementFormLine[],
   startDate: "",
   endDate: "",
   period: "month" as "month" | "quarter",
-  hours: 0 as number | string,
-  fee: 0 as number | string,
-  rate: "" as number | string | null,
-  overageRate: "" as number | string | null,
   currency: "",
   autoPublish: false,
   rolloverMode: "expire" as "expire" | "rollover",
   limitHours: "" as number | string | null,
 });
 const locked = ref(false);
+const canSave = computed(() => Boolean(form.name && form.customerId && form.lines.length && form.lines.every((l) => l.serviceId)));
 const id = computed(() => String(route.params.id || ""));
 
 async function load() {
@@ -66,14 +66,10 @@ async function load() {
     Object.assign(form, {
       name: a.name,
       customerId: a.customerId,
-      serviceId: a.serviceId,
+      lines: agreementFormLines(a),
       startDate: a.startDate,
       endDate: a.endDate || "",
       period: a.period || "month",
-      hours: a.hours,
-      fee: a.fee,
-      rate: a.rate ?? "",
-      overageRate: a.overageRate ?? "",
       currency: a.currency || "",
       autoPublish: Boolean(a.autoPublish),
       rolloverMode: a.rolloverPolicy?.mode === "rollover" ? "rollover" : "expire",
@@ -93,14 +89,10 @@ async function save() {
     await cpatch(`/agreements/${id.value}`, {
       name: form.name,
       customerId: form.customerId,
-      serviceId: form.serviceId,
+      lines: agreementLinesPayload(form.lines),
       startDate: form.startDate,
       endDate: form.endDate || null,
       period: form.period,
-      hours: Number(form.hours),
-      fee: Number(form.fee),
-      rate: form.rate === "" || form.rate == null ? undefined : Number(form.rate),
-      overageRate: form.overageRate === "" || form.overageRate == null ? null : Number(form.overageRate),
       currency: form.currency || undefined,
       autoPublish: form.autoPublish,
       rolloverPolicy: {
@@ -128,7 +120,7 @@ watch([id, useDataVersion()], load, { immediate: true });
       <template #footer>
         <div class="flex flex-wrap justify-end gap-2">
           <UButton variant="ghost" color="neutral" :to="`/dashboard/agreements/${id}`">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.customerId || !form.serviceId || !form.name" @click="save">Save</UButton>
+          <UButton :loading="saving" :disabled="!canSave" @click="save">Save</UButton>
         </div>
       </template>
     </UCard>

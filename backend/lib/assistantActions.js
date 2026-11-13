@@ -78,15 +78,34 @@ const WRITE_TOOL_DEFS = [
     billable: { type: "boolean", description: "True only for ad hoc billable hours that can later be invoiced. Ignored when an agreement is set." },
     rate: num("Optional hourly rate for billable time"), personName: str("Who did the work"), notes: str("Internal notes"),
   }, ["date", "description"]),
-  fn("propose_create_agreement", "Propose a DRAFT agreement (retainer) for a customer and a catalogue service. Never activates it or generates invoices.", {
-    name: str("Agreement name"), customer: str("Existing customer name or id"), service: str("Existing product/service name or id"),
+  fn("propose_create_agreement", "Propose a DRAFT agreement (retainer) for a customer with one or more lines, each a catalogue service with a qty and rate; the monthly value is the sum of qty × rate. One line can count time entries (e.g. support hours) with an included qty and overage rate. Never activates it or generates invoices.", {
+    name: str("Agreement name"), customer: str("Existing customer name or id"),
+    lines: {
+      type: "array",
+      description: "Agreement lines. Prefer this over service/hours/fee.",
+      items: {
+        type: "object",
+        properties: {
+          service: str("Existing product/service name or id"),
+          description: str("Line description (defaults to the service name)"),
+          qty: num("Quantity per period (default 1)"),
+          rate: num("Unit price (defaults to the service price)"),
+          tracksTime: { type: "boolean", description: "True for the one line that time entries count against (e.g. support hours)" },
+          includedQty: num("Time-tracked line only: hours included per period (default qty)"),
+          overageRate: num("Time-tracked line only: rate for hours beyond the included qty (default the line rate)"),
+        },
+        required: ["service"],
+        additionalProperties: false,
+      },
+    },
+    service: str("Legacy single service (use lines instead)"),
     startDate: ISO("Start date"), endDate: ISO("Optional end date"), period: { type: "string", enum: ["month", "quarter"], description: "Calendar month or quarter" },
-    hours: num("Included hours per period"), fee: num("Period fee"), rate: num("Standard hourly rate, used for overage if no overage rate is set"),
-    overageRate: num("Optional overage hourly rate"), currency: CURRENCY,
+    hours: num("Legacy: included hours per period"), fee: num("Legacy: period fee"), rate: num("Legacy: standard hourly rate, used for overage if no overage rate is set"),
+    overageRate: num("Legacy: optional overage hourly rate"), currency: CURRENCY,
     rollover: { type: "string", enum: ["expire", "rollover"], description: "What happens to unused hours at period close" },
     rolloverCap: num("Optional cap on hours that roll over; omit for no cap"),
     autoPublish: { type: "boolean", description: "If true, recurring invoices are published automatically (default false, drafts)" },
-  }, ["customer", "service", "startDate", "hours", "fee"]),
+  }, ["customer", "startDate"]),
   fn("propose_create_draft_invoice", "Propose a DRAFT invoice. Never publishes; the user publishes it in the app.", {
     customer: str("Existing customer name or id"), currency: CURRENCY, items: LINES,
     issueDate: ISO("Issue date"), dueDate: ISO("Due date"), reference: str("Reference / PO"), notes: str("Notes shown on the invoice"),
@@ -352,45 +371,86 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
     case "propose_create_agreement": {
       const r = resolveOne(await customers.listCustomers(companyId), args.customer, { label: "customer", nameOf: (c) => c.name, extraKeys: ["email"] });
       if (r.error) return r.error;
-      const s = resolveOne(await products.listProducts(companyId, { includeInactive: true }), args.service, { label: "service", nameOf: (p) => p.name });
-      if (s.error) return s.error;
       const start = requireDate(args.startDate, "start date", { required: true });
       if (start.error) return start.error;
       const end = requireDate(args.endDate, "end date");
       if (end.error) return end.error;
-      if (args.hours === undefined || args.hours === null || args.hours === "") return ask("How many hours are included in each period?", { missing: ["hours"] });
-      if (args.fee === undefined || args.fee === null || args.fee === "") return ask("What is the fee for each period?", { missing: ["fee"] });
-      const name = String(args.name || "").trim() || `${s.row.name} — ${r.row.name}`;
+      const given = (v) => v !== undefined && v !== null && v !== "";
+      const catalogue = await products.listProducts(companyId, { includeInactive: true });
+      const currency = args.currency || r.row.currency || "ZAR";
+      let lineInput = null;
+      let legacy = null;
+      let serviceLabel = "";
+      if (Array.isArray(args.lines) && args.lines.length) {
+        lineInput = [];
+        for (const l of args.lines) {
+          const s = resolveOne(catalogue, l.service, { label: "service", nameOf: (p) => p.name });
+          if (s.error) return s.error;
+          lineInput.push({
+            serviceId: s.row.id,
+            description: String(l.description || s.row.name || ""),
+            qty: given(l.qty) ? Number(l.qty) : 1,
+            rate: given(l.rate) ? Number(l.rate) : Number(s.row.unitPrice || 0),
+            ...(l.tracksTime !== undefined ? { tracksTime: Boolean(l.tracksTime) } : {}),
+            ...(given(l.includedQty) ? { includedQty: Number(l.includedQty) } : {}),
+            ...(given(l.overageRate) ? { overageRate: Number(l.overageRate) } : {}),
+          });
+        }
+        if (lineInput.filter((l) => l.tracksTime).length > 1) return ask("Which one line should time entries count against?", { missing: ["lines"] });
+        if (!lineInput.some((l) => l.tracksTime !== undefined)) lineInput[0].tracksTime = true;
+        serviceLabel = lineInput[0].description;
+      } else {
+        if (!args.service) return ask("Which services make up the agreement (service, qty and rate for each)?", { missing: ["lines"] });
+        const s = resolveOne(catalogue, args.service, { label: "service", nameOf: (p) => p.name });
+        if (s.error) return s.error;
+        if (!given(args.hours)) return ask("How many hours are included in each period?", { missing: ["hours"] });
+        if (!given(args.fee)) return ask("What is the fee for each period?", { missing: ["fee"] });
+        legacy = {
+          serviceId: s.row.id,
+          hours: Number(args.hours),
+          fee: Number(args.fee),
+          ...(given(args.rate) ? { rate: Number(args.rate) } : {}),
+          ...(given(args.overageRate) ? { overageRate: Number(args.overageRate) } : {}),
+        };
+        serviceLabel = s.row.name;
+      }
+      const name = String(args.name || "").trim() || `${serviceLabel} — ${r.row.name}`;
       const mode = args.rollover === "rollover" ? "rollover" : "expire";
       const input = {
         name,
         customerId: r.row.id,
-        serviceId: s.row.id,
+        ...(lineInput ? { lines: lineInput } : legacy),
         startDate: start.date,
-        hours: Number(args.hours),
-        fee: Number(args.fee),
         period: args.period === "quarter" ? "quarter" : "month",
         autoPublish: Boolean(args.autoPublish),
         rolloverPolicy: {
           mode,
-          limitHours: args.rolloverCap !== undefined && args.rolloverCap !== null && args.rolloverCap !== "" ? Number(args.rolloverCap) : null,
+          limitHours: given(args.rolloverCap) ? Number(args.rolloverCap) : null,
         },
         ...(end.date ? { endDate: end.date } : {}),
-        ...(args.rate !== undefined && args.rate !== null && args.rate !== "" ? { rate: Number(args.rate) } : {}),
-        ...(args.overageRate !== undefined && args.overageRate !== null && args.overageRate !== "" ? { overageRate: Number(args.overageRate) } : {}),
         ...(args.currency ? { currency: args.currency } : {}),
       };
+      const lineDetails = lineInput
+        ? lineInput.map((l, i) => ({
+            label: `Line ${i + 1}`,
+            value: `${l.description}: ${l.qty} × ${formatMoney(l.rate, currency)}${l.tracksTime ? ` (time counts here${given(l.includedQty) ? `, ${l.includedQty} included` : ""}${given(l.overageRate) ? `, overage ${formatMoney(l.overageRate, currency)}` : ""})` : ""}`,
+          }))
+        : [
+            { label: "Service", value: serviceLabel },
+            { label: "Hours", value: String(legacy.hours) },
+            { label: "Fee", value: formatMoney(legacy.fee, currency) },
+          ];
+      const monthly = lineInput ? roundMoney(lineInput.reduce((sum, l) => sum + roundMoney(l.qty * l.rate), 0)) : legacy.fee;
       return {
         tool, input,
         title: `Create draft agreement ${name} for ${r.row.name}`,
         details: [
           { label: "Customer", value: r.row.name },
-          { label: "Service", value: s.row.name },
+          ...lineDetails,
+          { label: input.period === "quarter" ? "Quarterly value" : "Monthly value", value: formatMoney(monthly, currency) },
           { label: "Start", value: fmtDate(start.date) },
           ...(end.date ? [{ label: "End", value: fmtDate(end.date) }] : []),
           { label: "Period", value: input.period === "quarter" ? "Calendar quarter" : "Calendar month" },
-          { label: "Hours", value: String(input.hours) },
-          { label: "Fee", value: formatMoney(input.fee, input.currency || r.row.currency || "ZAR") },
           { label: "Unused hours", value: mode === "rollover" ? (input.rolloverPolicy.limitHours != null ? `Roll over, cap ${input.rolloverPolicy.limitHours}h` : "Roll over, no cap") : "Expire" },
           { label: "Recurring invoices", value: input.autoPublish ? "Publish automatically" : "Create as drafts" },
         ],

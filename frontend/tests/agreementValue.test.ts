@@ -1,7 +1,7 @@
 // Run with: npm test (node --test --experimental-strip-types)
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agreementValue } from "../app/utils/agreementValue.ts";
+import { agreementValue, agreementLineTotal, linesValue } from "../app/utils/agreementValue.ts";
 
 test("monthly value is the period fee for calendar-month agreements", () => {
   const v = agreementValue({ fee: 10000, startDate: "2026-01-01", endDate: "2026-03-31", period: "month" });
@@ -60,4 +60,50 @@ test("blank or invalid fee yields no summary", () => {
   assert.equal(agreementValue({ fee: "", startDate: "2026-01-01", endDate: "2026-12-31" }), null);
   assert.equal(agreementValue({ fee: null, startDate: "2026-01-01" }), null);
   assert.equal(agreementValue({}), null);
+});
+
+test("line totals are qty × rate and the period value is their sum", () => {
+  assert.equal(agreementLineTotal({ qty: 20, rate: 500 }), 10000);
+  assert.equal(agreementLineTotal({ qty: 2.5, rate: 99.99 }), 249.98);
+  assert.equal(agreementLineTotal({ qty: "", rate: 500 }), 0);
+  assert.equal(linesValue([{ qty: 20, rate: 500 }, { qty: 1, rate: 1500 }, { qty: 0, rate: 250 }]), 11500);
+  assert.equal(linesValue([]), 0);
+});
+
+test("agreement value from lines: monthly sum, annual when open-ended", () => {
+  const lines = [{ qty: 20, rate: 500 }, { qty: 1, rate: 1500 }];
+  const v = agreementValue({ lines, startDate: "2026-01-01", period: "month" });
+  assert.equal(v?.monthlyValue, 11500);
+  assert.equal(v?.annualValue, 138000);
+  assert.equal(v?.openEnded, true);
+});
+
+test("agreement value from lines with an end date prorates like the backend", () => {
+  // 11500 × 17/31 = 6306.45; Feb full 11500
+  const v = agreementValue({ lines: [{ qty: 20, rate: 500 }, { qty: 1, rate: 1500 }], startDate: "2026-01-15", endDate: "2026-02-28", period: "month" });
+  assert.equal(v?.monthlyValue, 11500);
+  assert.equal(v?.totalValue, 17806.45);
+  assert.equal(v?.openEnded, false);
+});
+
+test("lines take precedence over a legacy fee", () => {
+  const v = agreementValue({ lines: [{ qty: 2, rate: 100 }], fee: 9999, startDate: "2026-01-01" });
+  assert.equal(v?.monthlyValue, 200);
+});
+
+test("a pre-1.10 agreement reads as one time-tracked form line", async () => {
+  const { agreementFormLines, agreementLinesPayload } = await import("../app/utils/agreementValue.ts");
+  const lines = agreementFormLines({ serviceId: "svc", hours: 20, fee: 10000, rate: 500, overageRate: null });
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].qty, 1);
+  assert.equal(lines[0].rate, 10000);
+  assert.equal(lines[0].includedQty, 20);
+  assert.equal(lines[0].overageRate, 500);
+  assert.equal(lines[0].tracksTime, true);
+  const payload = agreementLinesPayload([
+    { ...lines[0], description: "Support" },
+    { key: "x", serviceId: "h", description: "Hosting", qty: "1", rate: "", includedQty: "5", overageRate: "9", tracksTime: false },
+  ]);
+  assert.deepEqual(payload[1], { serviceId: "h", description: "Hosting", qty: 1, rate: null, includedQty: null, overageRate: null, tracksTime: false });
+  assert.equal(payload[0].includedQty, 20);
 });

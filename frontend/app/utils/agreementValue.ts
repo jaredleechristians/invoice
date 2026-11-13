@@ -99,7 +99,36 @@ function prorateFee(fee: number, daysInPeriod: number, daysInFullPeriod: number)
   return round2(includedFee * (days / fullDays));
 }
 
+export type AgreementLineInput = {
+  id?: string;
+  serviceId?: string;
+  description?: string;
+  qty?: number | string | null;
+  rate?: number | string | null;
+  includedQty?: number | string | null;
+  overageRate?: number | string | null;
+  tracksTime?: boolean;
+};
+
+function num(raw: unknown): number {
+  if (raw === "" || raw === undefined || raw === null) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** qty × rate, rounded like the backend (roundMoney). */
+export function agreementLineTotal(line: AgreementLineInput): number {
+  return round2(num(line.qty) * num(line.rate));
+}
+
+/** Period value = sum of line totals (matches backend agreementLines.periodValue). */
+export function linesValue(lines: AgreementLineInput[] | null | undefined): number {
+  return round2((lines || []).reduce((sum, l) => sum + agreementLineTotal(l), 0));
+}
+
 export type AgreementValueInput = {
+  /** When given, the period fee is the sum of the lines. */
+  lines?: AgreementLineInput[] | null;
   fee?: number | string | null;
   startDate?: string | null;
   endDate?: string | null;
@@ -148,14 +177,15 @@ function totalProratedFees(fee: number, startDate: string, endDate: string, type
 }
 
 /**
- * Live agreement-value summary. Monthly value is the period fee for calendar-month
+ * Live agreement-value summary. The period fee is the sum of the agreement lines
+ * (qty × rate), or a legacy single fee. Monthly value is the period fee for calendar-month
  * agreements (or fee / 3 for quarters). With an end date, total value is the sum of
  * prorated period fees, matching the recurring-invoice period logic. With no end
  * date, annual value is 12 calendar months of the monthly value (fee × 12, or fee × 4
  * for quarters).
  */
 export function agreementValue(input: AgreementValueInput): AgreementValue | null {
-  const fee = parseFee(input.fee);
+  const fee = input.lines && input.lines.length ? linesValue(input.lines) : parseFee(input.fee);
   if (fee == null) return null;
   const type = periodType(input.period);
   const monthlyValue = monthlyFromFee(fee, type);
@@ -170,4 +200,77 @@ export function agreementValue(input: AgreementValueInput): AgreementValue | nul
     totalValue: start ? totalProratedFees(fee, start, end, type) : null,
     openEnded: false,
   };
+}
+
+/** Editable line in the agreement form. Numbers stay as typed (string | number) until save. */
+export type AgreementFormLine = {
+  key: string;
+  id?: string;
+  serviceId: string;
+  description: string;
+  qty: number | string;
+  rate: number | string;
+  includedQty: number | string;
+  overageRate: number | string;
+  tracksTime: boolean;
+};
+
+let lineSeq = 0;
+function nextKey() {
+  lineSeq += 1;
+  return `l${Date.now().toString(36)}${lineSeq}`;
+}
+
+export function blankAgreementLine(tracksTime = false): AgreementFormLine {
+  return { key: nextKey(), serviceId: "", description: "", qty: 1, rate: "", includedQty: "", overageRate: "", tracksTime };
+}
+
+type StoredAgreement = AgreementLineInput & {
+  lines?: AgreementLineInput[] | null;
+  hours?: number | string | null;
+  fee?: number | string | null;
+};
+
+/**
+ * Form lines for an agreement from the API. Pre-1.10 agreements without lines read as
+ * one time-tracked line: qty 1 at the period fee, included qty = hours.
+ */
+export function agreementFormLines(a: StoredAgreement | null | undefined): AgreementFormLine[] {
+  const src: AgreementLineInput[] = a?.lines && a.lines.length
+    ? a.lines
+    : a?.serviceId
+      ? [{ serviceId: a.serviceId, qty: 1, rate: a.fee ?? 0, includedQty: a.hours ?? "", overageRate: a.overageRate ?? a.rate ?? "", tracksTime: true }]
+      : [];
+  const lines = src.map((l) => ({
+    key: nextKey(),
+    id: l.id,
+    serviceId: String(l.serviceId || ""),
+    description: String(l.description || ""),
+    qty: l.qty ?? 1,
+    rate: l.rate ?? "",
+    includedQty: l.includedQty ?? "",
+    overageRate: l.overageRate ?? "",
+    tracksTime: Boolean(l.tracksTime),
+  }));
+  return lines.length ? lines : [blankAgreementLine(true)];
+}
+
+function optionalNumber(v: unknown): number | null {
+  if (v === "" || v === undefined || v === null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** API payload for the lines (every line sends tracksTime explicitly). */
+export function agreementLinesPayload(lines: AgreementFormLine[]) {
+  return lines.map((l) => ({
+    ...(l.id ? { id: l.id } : {}),
+    serviceId: l.serviceId,
+    description: l.description,
+    qty: optionalNumber(l.qty) ?? 0,
+    rate: optionalNumber(l.rate),
+    includedQty: l.tracksTime ? optionalNumber(l.includedQty) : null,
+    overageRate: l.tracksTime ? optionalNumber(l.overageRate) : null,
+    tracksTime: Boolean(l.tracksTime),
+  }));
 }
