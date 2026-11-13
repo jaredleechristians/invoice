@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { CURRENCIES } from "~/utils/money";
+import { CURRENCIES, formatCurrency } from "~/utils/money";
+import { agreementValue } from "~/utils/agreementValue";
 
 type Customer = { id: string; name: string; currency?: string };
 type Service = { id: string; name: string; unitPrice: number; currency?: string; kind: string };
@@ -38,6 +39,21 @@ const currencyOptions = computed(() => {
   const list = props.currencies?.length ? props.currencies : [...CURRENCIES];
   return list.map((c) => ({ label: c, value: c }));
 });
+
+const { company } = useCompany();
+
+const displayCurrency = computed(() =>
+  form.value.currency || company.value?.baseCurrency || company.value?.defaultCurrency || "ZAR"
+);
+
+const valueSummary = computed(() =>
+  agreementValue({
+    fee: form.value.fee,
+    startDate: form.value.startDate,
+    endDate: form.value.endDate,
+    period: form.value.period,
+  })
+);
 
 function set<K extends keyof typeof props.modelValue>(key: K, value: (typeof props.modelValue)[K]) {
   emit("update:modelValue", { ...props.modelValue, [key]: value });
@@ -101,18 +117,38 @@ watch(
       <UFormField label="Currency">
         <AppSelect :model-value="form.currency" :options="currencyOptions" @update:model-value="set('currency', String($event || ''))" />
       </UFormField>
-      <UFormField label="Included hours" required>
+      <UFormField label="Included qty" required>
         <UInput :model-value="form.hours" type="number" min="0" step="0.25" class="w-full" @update:model-value="set('hours', $event as number | string)" />
       </UFormField>
       <UFormField label="Period fee" required>
         <UInput :model-value="form.fee" type="number" min="0" step="0.01" class="w-full" @update:model-value="set('fee', $event as number | string)" />
       </UFormField>
-      <UFormField label="Standard hourly rate" hint="Used for overage if no overage rate is set">
+      <UFormField label="Standard rate" hint="Used for overage if no overage rate is set">
         <UInput :model-value="form.rate as number | string" type="number" min="0" step="0.01" class="w-full" @update:model-value="set('rate', $event as number | string)" />
       </UFormField>
       <UFormField label="Overage rate" hint="Optional. Falls back to the standard rate.">
         <UInput :model-value="form.overageRate as number | string" type="number" min="0" step="0.01" class="w-full" @update:model-value="set('overageRate', $event as number | string)" />
       </UFormField>
+      <div v-if="valueSummary" class="sm:col-span-2 rounded-lg border border-default px-4 py-3">
+        <div class="flex items-baseline justify-between gap-3">
+          <p class="text-sm font-medium">Agreement value</p>
+          <p class="text-xs text-dimmed">excludes overage</p>
+        </div>
+        <dl class="mt-2 space-y-1 text-sm">
+          <div class="flex justify-between gap-3">
+            <dt class="text-dimmed">Monthly value</dt>
+            <dd class="tabular-nums">{{ formatCurrency(valueSummary.monthlyValue, displayCurrency) }}</dd>
+          </div>
+          <div v-if="valueSummary.openEnded" class="flex justify-between gap-3">
+            <dt class="text-dimmed">Annual value (open-ended)</dt>
+            <dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd>
+          </div>
+          <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3">
+            <dt class="text-dimmed">Total agreement value</dt>
+            <dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd>
+          </div>
+        </dl>
+      </div>
       <UFormField label="Unused hours" class="sm:col-span-2">
         <div class="space-y-3">
           <AppSelect

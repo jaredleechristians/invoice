@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatCurrency, formatDate, STATUS_COLORS, statusLabel } from "~/utils/money";
+import { agreementValue } from "~/utils/agreementValue";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -48,7 +49,7 @@ type Agreement = {
 
 const route = useRoute();
 const { capi, cpost, cdelete } = useCompanyApi();
-const { isAdmin } = useCompany();
+const { isAdmin, company } = useCompany();
 const toast = useToast();
 
 const agreement = ref<Agreement | null>(null);
@@ -62,6 +63,16 @@ const rolloverLabel = computed(() => {
   const p = agreement.value?.rolloverPolicy;
   if (!p || p.mode !== "rollover") return "Unused hours expire";
   return p.limitHours != null && p.limitHours !== ("" as unknown) ? `Unused hours roll over, capped at ${p.limitHours}h` : "Unused hours roll over, no cap";
+});
+
+const displayCurrency = computed(() =>
+  agreement.value?.currency || company.value?.baseCurrency || company.value?.defaultCurrency || "ZAR"
+);
+
+const valueSummary = computed(() => {
+  const a = agreement.value;
+  if (!a) return null;
+  return agreementValue({ fee: a.fee, startDate: a.startDate, endDate: a.endDate, period: a.period });
 });
 
 async function load() {
@@ -164,8 +175,14 @@ watch([id, useDataVersion()], load, { immediate: true });
       </UCard>
       <UCard>
         <dl class="space-y-2 text-sm">
-          <div class="flex justify-between gap-3"><dt class="text-dimmed">Included hours</dt><dd class="tabular-nums">{{ agreement.hours }}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-dimmed">Included qty</dt><dd class="tabular-nums">{{ agreement.hours }}</dd></div>
           <div class="flex justify-between gap-3"><dt class="text-dimmed">Period fee</dt><dd class="tabular-nums">{{ formatCurrency(agreement.fee, agreement.currency) }}</dd></div>
+          <template v-if="valueSummary">
+            <div class="flex justify-between gap-3"><dt class="text-dimmed">Monthly value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.monthlyValue, displayCurrency) }}</dd></div>
+            <div v-if="valueSummary.openEnded" class="flex justify-between gap-3"><dt class="text-dimmed">Annual value (open-ended)</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd></div>
+            <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3"><dt class="text-dimmed">Total agreement value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd></div>
+            <p class="text-xs text-dimmed">excludes overage</p>
+          </template>
           <div class="flex justify-between gap-3"><dt class="text-dimmed">Standard rate</dt><dd class="tabular-nums">{{ agreement.rate != null ? formatCurrency(agreement.rate, agreement.currency) : "—" }}</dd></div>
           <div class="flex justify-between gap-3"><dt class="text-dimmed">Overage rate</dt><dd class="tabular-nums">{{ agreement.overageRate != null ? formatCurrency(agreement.overageRate, agreement.currency) : "Standard rate" }}</dd></div>
           <div class="flex justify-between gap-3"><dt class="text-dimmed">Unused hours</dt><dd class="text-right">{{ rolloverLabel }}</dd></div>

@@ -52,7 +52,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <PageHeader info="An agreement is a retainer: a customer, a billable service, included hours and a period fee. Recurring invoices are created at the start of each calendar period.">
+    <PageHeader info="An agreement is a retainer: a customer, a billable service, included qty and a period fee. Recurring invoices are created at the start of each calendar period.">
       <template #filters>
         <UInput v-model="q" placeholder="Search name or customer" class="w-full sm:w-72" icon="i-lucide-search" />
         <div class="w-full sm:w-44">
@@ -70,7 +70,7 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
         { accessorKey: 'name', header: 'Agreement' },
         { accessorKey: 'customerName', header: 'Customer' },
         { accessorKey: 'startDate', header: 'Start' },
-        { accessorKey: 'hours', header: 'Hours', meta: { class: { th: 'text-right', td: 'text-right' } } },
+        { accessorKey: 'hours', header: 'Qty', meta: { class: { th: 'text-right', td: 'text-right' } } },
         { accessorKey: 'fee', header: 'Fee', meta: { class: { th: 'text-right', td: 'text-right' } } },
         { accessorKey: 'status', header: 'Status' },
       ]"
