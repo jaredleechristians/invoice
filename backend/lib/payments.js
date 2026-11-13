@@ -171,7 +171,7 @@ async function recordPayment(companyId, uid, email, role, body = {}, extra = {})
     ({ invoice, payments, tx, posting, bankPost, doc }) => {
       if (invoice.voided) throw httpError(409, "Cannot record payments on a void invoice");
       if (invoice.draft) throw httpError(409, "Publish the invoice before recording payments");
-      const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments));
+      const outstanding = roundMoney(roundMoney(invoice.total) - sumPayments(payments) - roundMoney(invoice.creditedAmount || 0));
       if (input.amount > outstanding + 0.001) {
         throw httpError(400, `Payment exceeds the outstanding balance (${outstanding.toFixed(2)} ${invoice.currency || "ZAR"})`);
       }

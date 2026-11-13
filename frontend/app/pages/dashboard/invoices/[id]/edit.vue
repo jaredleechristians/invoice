@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { notifyCreditLimitWarning } from "~/utils/money";
+
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
 const route = useRoute();
@@ -22,7 +24,8 @@ async function onSubmit({ body, finalize }: { body: Record<string, unknown>; fin
   saving.value = true;
   error.value = "";
   try {
-    await cpatch(`/invoices/${id.value}`, { ...body, finalize });
+    const inv = await cpatch<{ creditLimitWarning?: { message?: string } }>(`/invoices/${id.value}`, { ...body, finalize });
+    notifyCreditLimitWarning(inv);
     await navigateTo(`/dashboard/invoices/${id.value}`);
   } catch (e) {
     error.value = errMsg(e, "Could not save invoice");

@@ -35,11 +35,14 @@ async function listJournals(companyId, { accountId, from, to, sourceType, source
   if (invoiceId) {
     const paySnap = await companyRef(getDb(), companyId).collection("payments").where("invoiceId", "==", invoiceId).get();
     const paymentIds = new Set(paySnap.docs.map((d) => d.id));
+    const cnSnap = await companyRef(getDb(), companyId).collection("creditNotes").where("invoiceId", "==", invoiceId).get();
+    const creditNoteIds = new Set(cnSnap.docs.map((d) => d.id));
     rows = rows.filter(
       (e) =>
         (e.source?.type === "invoice" && e.source?.id === invoiceId) ||
         (e.source?.type === "payment" && paymentIds.has(e.source?.id)) ||
-        (e.source?.type === "payment_bank" && paymentIds.has(e.source?.id))
+        (e.source?.type === "payment_bank" && paymentIds.has(e.source?.id)) ||
+        (e.source?.type === "credit_note" && (creditNoteIds.has(e.source?.id) || e.source?.invoiceId === invoiceId))
     );
   }
   rows.sort(

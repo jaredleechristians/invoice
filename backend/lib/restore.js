@@ -15,6 +15,7 @@ const KINDS = {
   payment: "payments",
   expenseCategory: "expenseCategories",
   bankAccount: "bankAccounts",
+  creditNote: "creditNotes",
 };
 
 async function restoreRecord(companyId, uid, email, role, kind, id) {
@@ -75,6 +76,36 @@ async function restoreRecord(companyId, uid, email, role, kind, id) {
         ctx,
       });
       tx.set(ref, { ...patch, ledger: posting.ledger }, { merge: true });
+      posting.commit(tx);
+    });
+  } else if (kind === "creditNote") {
+    const creditNotes = require("./creditNotes");
+    const invoices = require("./invoices");
+    const inv = await companyRef(db, companyId).collection("invoices").doc(data.invoiceId).get();
+    if (!inv.exists || inv.data().deletedAt) throw httpError(409, "Restore the invoice first");
+    const shouldPost = !data.draft && !data.voided;
+    const ctx = shouldPost ? await invoices.loadLedgerCtx(companyId) : null;
+    await db.runTransaction(async (tx) => {
+      const { invoice, notes } = await creditNotes.loadInvoiceNotes(tx, db, companyId, data.invoiceId);
+      const restored = { id: snap.id, ...data, ...patch, deletedAt: null, deletedBy: null };
+      const others = notes.filter((n) => n.id !== snap.id);
+      if (shouldPost && restored.total > creditNotes.remainingOnInvoice(invoice, others) + 0.001) {
+        throw httpError(409, "Restoring this credit note would exceed the invoice's remaining outstanding balance");
+      }
+      let posting = { commit() {}, ledger: data.ledger };
+      if (shouldPost) {
+        posting = await creditNotes.planCreditNoteLedger(tx, companyId, {
+          creditNoteId: snap.id,
+          doc: restored,
+          event: "restore",
+          createdBy: uid,
+          currentLedger: data.ledger,
+          postDate: data.issueDate,
+          ctx,
+        });
+      }
+      tx.set(ref, { ...patch, ledger: posting.ledger || data.ledger }, { merge: true });
+      await creditNotes.writeInvoiceCredits(tx, db, companyId, invoice, [...others, restored]);
       posting.commit(tx);
     });
   } else if (kind === "expense") {

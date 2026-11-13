@@ -91,6 +91,8 @@ async function save() {
       invoiceNextNumber: Number(f.invoiceNextNumber),
       quotePrefix: f.quotePrefix,
       quoteNextNumber: Number(f.quoteNextNumber),
+      creditNotePrefix: f.creditNotePrefix,
+      creditNoteNextNumber: Number(f.creditNoteNextNumber),
       defaultCurrency: f.defaultCurrency,
       baseCurrency: f.baseCurrency || "ZAR",
       currencies: f.currencies,
@@ -197,6 +199,8 @@ async function save() {
             <UFormField label="Quote prefix"><UInput v-model="form.quotePrefix" class="w-full" /></UFormField>
             <UFormField label="Next quote number"><UInput v-model.number="form.quoteNextNumber" type="number" min="1" class="w-full" /></UFormField>
             <UFormField label="Quotes valid for (days)"><UInput v-model.number="form.quoteValidDays" type="number" min="0" max="365" class="w-full" /></UFormField>
+            <UFormField label="Credit note prefix"><UInput v-model="form.creditNotePrefix" class="w-full" /></UFormField>
+            <UFormField label="Next credit note number"><UInput v-model.number="form.creditNoteNextNumber" type="number" min="1" class="w-full" /></UFormField>
             <UFormField label="Default currency">
               <AppSelect v-model="form.defaultCurrency" searchable :options="CURRENCIES.map((c) => ({ label: c, value: c }))" />
             </UFormField>

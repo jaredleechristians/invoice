@@ -14,6 +14,7 @@ import { isPublicDashboardPath } from "~/utils/authRoutes";
 const NAV = [
   { to: "/dashboard", label: "Home", icon: "i-lucide-house", exact: true },
   { to: "/dashboard/invoices", label: "Invoices", icon: "i-lucide-file-text" },
+  { to: "/dashboard/credit-notes", label: "Credit notes", icon: "i-lucide-file-minus-2" },
   { to: "/dashboard/quotes", label: "Quotes", icon: "i-lucide-file-pen-line" },
   { to: "/dashboard/customers", label: "Customers", icon: "i-lucide-users" },
   { to: "/dashboard/products", label: "Products", icon: "i-lucide-package" },
@@ -52,7 +53,7 @@ function initials(name?: string | null) {
 const ROLE_LABELS: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
 /** Detail/edit pages belong to one company; leave them when switching. */
-const COMPANY_SCOPED_DETAIL = /^\/dashboard\/(invoices|quotes)\/(?!new$)[^/]+/;
+const COMPANY_SCOPED_DETAIL = /^\/dashboard\/(invoices|quotes|credit-notes)\/(?!new$)[^/]+/;
 
 async function switchCompany(id: string) {
   if (id === activeCompanyId.value) return;

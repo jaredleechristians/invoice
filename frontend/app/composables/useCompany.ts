@@ -20,6 +20,8 @@ export type CompanySettings = {
   invoiceNextNumber: number;
   quotePrefix: string;
   quoteNextNumber: number;
+  creditNotePrefix?: string;
+  creditNoteNextNumber?: number;
   defaultCurrency: string;
   // Ledger base currency (separate from defaultCurrency); locked once journals exist.
   baseCurrency: string;

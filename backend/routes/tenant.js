@@ -14,6 +14,7 @@ const expenses = require("../lib/expenses");
 const reports = require("../lib/reports");
 const { buildStatement } = require("../lib/statements");
 const { listReceivables } = require("../lib/receivables");
+const creditNotes = require("../lib/creditNotes");
 const { importLocalInvoice } = require("../lib/importLocal");
 const { renderStatementHtml } = require("../lib/statementHtml");
 const { renderDocumentHtml } = require("../lib/documentHtml");
@@ -128,6 +129,31 @@ company.get("/customers/:customerId/statement.pdf", h(async (req, res) => {
 }));
 
 company.get("/receivables", h(async (req) => ({ receivables: await listReceivables(req.companyId) })));
+company.get("/customers/:customerId/credit", h((req) => customers.customerCreditSnapshot(req.companyId, req.params.customerId)));
+
+// ---------- credit notes ----------
+
+company.get("/credit-notes", h(async (req) => ({
+  creditNotes: await creditNotes.listCreditNotes(req.companyId, {
+    q: req.query.q,
+    invoiceId: req.query.invoiceId,
+    customerId: req.query.customerId,
+    status: req.query.status,
+  }),
+})));
+company.post("/credit-notes", h((req) => creditNotes.createCreditNote(...actor(req), req.body || {}), 201));
+company.get("/credit-notes/:creditNoteId", h((req) => creditNotes.requireCreditNote(req.companyId, req.params.creditNoteId)));
+company.patch("/credit-notes/:creditNoteId", h((req) => creditNotes.updateCreditNote(...actor(req), req.params.creditNoteId, req.body || {})));
+company.delete("/credit-notes/:creditNoteId", h((req) => creditNotes.deleteCreditNote(...actor(req), req.params.creditNoteId)));
+company.post("/credit-notes/:creditNoteId/finalize", h((req) => creditNotes.finalizeCreditNote(...actor(req), req.params.creditNoteId)));
+company.post("/credit-notes/:creditNoteId/void", h((req) => creditNotes.voidCreditNote(...actor(req), req.params.creditNoteId, { reason: req.body?.reason })));
+company.get("/credit-notes/:creditNoteId/pdf", h(async (req, res) => {
+  const doc = await creditNotes.requireCreditNote(req.companyId, req.params.creditNoteId);
+  const c = await invoices.loadCompany(req.companyId);
+  const html = renderDocumentHtml({ kind: "credit_note", doc, company: c });
+  if (req.query.format === "html") return res.type("html").send(html);
+  await sendPdf(res, html, `${safeName(doc.creditNoteNumber, "draft-credit-note")}.pdf`);
+}));
 
 // ---------- products ----------
 

@@ -14,10 +14,11 @@ function parseHumanDate(value) {
  * Derived payment status. Stored status is a snapshot; always recompute on read
  * because "overdue" depends on today's date.
  */
-function invoiceStatus({ total, paidAmount, dueDate, draft, voided }, now = new Date()) {
+function invoiceStatus({ total, paidAmount, creditedAmount, dueDate, draft, voided }, now = new Date()) {
   const totalAmt = roundMoney(total);
   const paid = roundMoney(paidAmount);
-  const rawOutstanding = roundMoney(totalAmt - paid);
+  const credited = roundMoney(creditedAmount || 0);
+  const rawOutstanding = roundMoney(totalAmt - paid - credited);
   const credit = rawOutstanding < 0 ? roundMoney(-rawOutstanding) : 0;
   const due = toIsoDate(dueDate);
   const today = todayIso(now);
@@ -33,7 +34,7 @@ function invoiceStatus({ total, paidAmount, dueDate, draft, voided }, now = new 
   let status;
   if (rawOutstanding <= 0) status = "paid";
   else if (overdueBase) status = "overdue";
-  else if (paid > 0) status = "partially_paid";
+  else if (paid > 0 || credited > 0) status = "partially_paid";
   else status = "unpaid";
 
   return {
