@@ -189,7 +189,7 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
   assertCan(canWriteRecords, role);
   const db = getDb();
   const company = await loadCompany(companyId);
-  const id = randomId();
+  const id = String(body.id || "").trim() || randomId();
   const now = new Date().toISOString();
   // Legacy API default (import-local): finalized unless draft:true is sent.
   const draft = body.finalize === true ? false : Boolean(body.draft);
@@ -231,6 +231,9 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
     payload: body.payload || null,
     sourceQuoteId: String(body.sourceQuoteId || ""),
     duplicatedFrom: String(body.duplicatedFrom || ""),
+    agreementId: String(body.agreementId || ""),
+    agreementPeriodId: String(body.agreementPeriodId || ""),
+    overageForPeriodId: String(body.overageForPeriodId || ""),
     createdAt: now,
     updatedAt: now,
     createdBy: uid,

@@ -56,8 +56,25 @@ function withComputed(entry) {
   };
 }
 
+async function agreementNames(companyId, rows) {
+  const ids = [...new Set(rows.map((e) => e.agreementId).filter(Boolean))];
+  if (!ids.length) return {};
+  const { getDb } = require("./firebase");
+  const { companyRef } = require("./refs");
+  const names = {};
+  await Promise.all(ids.map(async (id) => {
+    const snap = await companyRef(getDb(), companyId).collection("agreements").doc(id).get();
+    if (snap.exists && !snap.data().deletedAt) names[id] = snap.data().name || "";
+  }));
+  return names;
+}
+
 async function listTimeEntries(companyId, filters = {}) {
   const rows = (await fetchAll(timeCol(getDb(), companyId))).map(withComputed);
+  const names = await agreementNames(companyId, rows);
+  for (const e of rows) {
+    if (e.agreementId && !e.agreementName) e.agreementName = names[e.agreementId] || "";
+  }
   const needle = String(filters.q || "").trim().toLowerCase();
   return rows
     .filter((e) => {
@@ -78,8 +95,10 @@ async function listTimeEntries(companyId, filters = {}) {
       if (filters.from && String(e.date || "") < String(filters.from)) return false;
       if (filters.to && String(e.date || "") > String(filters.to)) return false;
       if (filters.invoiceId && e.invoiceId !== filters.invoiceId) return false;
+      if (filters.agreementId && e.agreementId !== filters.agreementId) return false;
+      if (filters.periodId && e.periodId !== filters.periodId) return false;
       if (needle) {
-        const hay = `${e.description || ""} ${e.notes || ""} ${e.personName || ""} ${e.customerName || ""}`.toLowerCase();
+        const hay = `${e.description || ""} ${e.notes || ""} ${e.personName || ""} ${e.customerName || ""} ${e.agreementName || ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
@@ -128,7 +147,10 @@ function normalizeEntry(body, existing = {}) {
   }
   let currency = existing.currency || "";
   if (body.currency !== undefined) currency = body.currency ? normalizeCurrency(body.currency, "") : "";
-  if (body.agreementId) throw httpError(400, "Agreement-linked time is not available until 1.9.0");
+  const agreementId =
+    body.agreementId !== undefined ? String(body.agreementId || "").trim() : existing.agreementId || "";
+  const periodId =
+    body.periodId !== undefined ? String(body.periodId || "").trim() : existing.periodId || "";
   return {
     date,
     minutes,
@@ -140,15 +162,32 @@ function normalizeEntry(body, existing = {}) {
     billable,
     rate,
     currency,
-    agreementId: "",
-    periodId: "",
+    agreementId,
+    periodId,
     source,
+  };
+}
+
+async function applyAgreementLink(companyId, data) {
+  if (!data.agreementId && !data.periodId) {
+    return { ...data, agreementId: "", periodId: "", agreementName: "" };
+  }
+  const agreements = require("./agreements");
+  const link = await agreements.resolveTimeLink(companyId, data);
+  return {
+    ...data,
+    agreementId: link.agreementId,
+    periodId: link.periodId,
+    customerId: link.customerId || data.customerId,
+    agreementName: link.agreementName || "",
+    // Retainer time counts toward the allowance; it is not ad hoc billable.
+    billable: link.agreementId ? false : data.billable,
   };
 }
 
 async function createTimeEntry(companyId, uid, email, role, body = {}) {
   assertCan(canWriteRecords, role);
-  const data = normalizeEntry(body);
+  const data = await applyAgreementLink(companyId, normalizeEntry(body));
   const customerName = await customerNameFor(companyId, data.customerId);
   const id = randomId();
   const now = new Date().toISOString();
@@ -174,7 +213,7 @@ async function updateTimeEntry(companyId, uid, email, role, entryId, body = {}) 
       ? "This time entry has already been invoiced"
       : "This time entry is already on a draft invoice");
   }
-  const data = normalizeEntry(body, existing);
+  const data = await applyAgreementLink(companyId, normalizeEntry(body, existing));
   const customerName = data.customerId !== existing.customerId
     ? await customerNameFor(companyId, data.customerId)
     : existing.customerName || (await customerNameFor(companyId, data.customerId));
@@ -214,6 +253,7 @@ async function prepareInvoiceTimeEntries(tx, db, companyId, invoiceId, { items, 
   }
   for (const id of nextIds) {
     const { data } = loaded[id];
+    if (data.agreementId) throw httpError(409, "Agreement time is billed through the retainer invoice and cannot be invoiced again");
     if (!data.billable) throw httpError(400, "Only billable time entries can be invoiced");
     if (data.invoiceId && data.invoiceId !== invoiceId) {
       throw httpError(409, "That time entry is already on another invoice");
@@ -292,6 +332,7 @@ async function createInvoiceFromTime(companyId, uid, email, role, body = {}) {
   for (const id of ids) entries.push(await requireTimeEntry(companyId, id));
   const already = entries.filter((e) => e.invoiceId);
   if (already.length) throw httpError(409, "One or more time entries are already on an invoice");
+  if (entries.some((e) => e.agreementId)) throw httpError(409, "Agreement time is billed through the retainer invoice and cannot be invoiced again");
   if (entries.some((e) => !e.billable)) throw httpError(400, "Only billable time entries can be invoiced");
   const customerIds = [...new Set(entries.map((e) => e.customerId).filter(Boolean))];
   const customerId = String(body.customerId || customerIds[0] || "").trim();

@@ -26,6 +26,7 @@ const invoices = require("./invoices");
 const quotes = require("./quotes");
 const payments = require("./payments");
 const timeEntries = require("./timeEntries");
+const agreements = require("./agreements");
 
 const ACTION_TTL_MS = 30 * 60 * 1000;
 
@@ -70,12 +71,22 @@ const WRITE_TOOL_DEFS = [
     amount: num("Amount paid"), currency: CURRENCY, date: ISO("Date paid"), vendor: str("Who was paid"),
     category: str("Expense category name (e.g. Fuel, Software)"), reference: str("Reference"), notes: str("Notes"),
   }, ["amount", "currency", "date"]),
-  fn("propose_create_time_entry", "Propose logging internal or ad hoc billable time. Does not invoice it.", {
+  fn("propose_create_time_entry", "Propose logging internal, agreement, or ad hoc billable time. Does not invoice it.", {
     date: ISO("Date of the work"), hours: num("Hours worked (e.g. 1.5)"), minutes: num("Minutes worked, if not using hours"),
     description: str("What was done"), customer: str("Customer name or id, if this time is for a customer"),
-    billable: { type: "boolean", description: "True only for ad hoc billable hours that can later be invoiced" },
+    agreement: str("Agreement name or id, when this time is against a retainer"),
+    billable: { type: "boolean", description: "True only for ad hoc billable hours that can later be invoiced. Ignored when an agreement is set." },
     rate: num("Optional hourly rate for billable time"), personName: str("Who did the work"), notes: str("Internal notes"),
   }, ["date", "description"]),
+  fn("propose_create_agreement", "Propose a DRAFT agreement (retainer) for a customer and a catalogue service. Never activates it or generates invoices.", {
+    name: str("Agreement name"), customer: str("Existing customer name or id"), service: str("Existing product/service name or id"),
+    startDate: ISO("Start date"), endDate: ISO("Optional end date"), period: { type: "string", enum: ["month", "quarter"], description: "Calendar month or quarter" },
+    hours: num("Included hours per period"), fee: num("Period fee"), rate: num("Standard hourly rate, used for overage if no overage rate is set"),
+    overageRate: num("Optional overage hourly rate"), currency: CURRENCY,
+    rollover: { type: "string", enum: ["expire", "rollover"], description: "What happens to unused hours at period close" },
+    rolloverCap: num("Optional cap on hours that roll over; omit for no cap"),
+    autoPublish: { type: "boolean", description: "If true, recurring invoices are published automatically (default false, drafts)" },
+  }, ["customer", "service", "startDate", "hours", "fee"]),
   fn("propose_create_draft_invoice", "Propose a DRAFT invoice. Never publishes; the user publishes it in the app.", {
     customer: str("Existing customer name or id"), currency: CURRENCY, items: LINES,
     issueDate: ISO("Issue date"), dueDate: ISO("Due date"), reference: str("Reference / PO"), notes: str("Notes shown on the invoice"),
@@ -298,7 +309,19 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
         customerId = r.row.id;
         customerName = r.row.name;
       }
-      const billable = Boolean(args.billable);
+      let agreementId = "";
+      let agreementName = "";
+      if (args.agreement) {
+        const r = resolveOne(await agreements.listAgreements(companyId), args.agreement, { label: "agreement", nameOf: (a) => a.name });
+        if (r.error) return r.error;
+        agreementId = r.row.id;
+        agreementName = r.row.name;
+        if (!customerId) {
+          customerId = r.row.customerId;
+          customerName = r.row.customerName || "";
+        }
+      }
+      const billable = Boolean(args.billable) && !agreementId;
       const input = {
         date: d.date,
         description,
@@ -307,20 +330,69 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
         ...(args.hours !== undefined && args.hours !== null && args.hours !== "" ? { hours: Number(args.hours) } : {}),
         ...(args.minutes !== undefined && args.minutes !== null && args.minutes !== "" ? { minutes: Number(args.minutes) } : {}),
         ...(customerId ? { customerId } : {}),
+        ...(agreementId ? { agreementId } : {}),
         ...(args.rate !== undefined && args.rate !== null && args.rate !== "" ? { rate: Number(args.rate) } : {}),
         ...pick(args, ["personName", "notes"]),
       };
       const duration = input.hours != null ? `${input.hours}h` : `${input.minutes} min`;
       return {
         tool, input,
-        title: `Log ${duration} ${billable ? "billable " : ""}time${customerName ? ` for ${customerName}` : ""} on ${fmtDate(d.date)}`,
+        title: `Log ${duration} ${agreementName ? "agreement " : billable ? "billable " : ""}time${customerName ? ` for ${customerName}` : ""} on ${fmtDate(d.date)}`,
         details: [
           { label: "Date", value: fmtDate(d.date) },
           { label: "Duration", value: duration },
           { label: "Work", value: description },
-          { label: "Billable", value: billable ? "Yes (ad hoc, not invoiced yet)" : "No (internal)" },
+          { label: "Billable", value: agreementId ? "No (counts toward the agreement)" : billable ? "Yes (ad hoc, not invoiced yet)" : "No (internal)" },
+          ...(agreementName ? [{ label: "Agreement", value: agreementName }] : []),
           ...(customerName ? [{ label: "Customer", value: customerName }] : []),
           ...(input.personName ? [{ label: "Person", value: input.personName }] : []),
+        ],
+      };
+    }
+    case "propose_create_agreement": {
+      const r = resolveOne(await customers.listCustomers(companyId), args.customer, { label: "customer", nameOf: (c) => c.name, extraKeys: ["email"] });
+      if (r.error) return r.error;
+      const s = resolveOne(await products.listProducts(companyId, { includeInactive: true }), args.service, { label: "service", nameOf: (p) => p.name });
+      if (s.error) return s.error;
+      const start = requireDate(args.startDate, "start date", { required: true });
+      if (start.error) return start.error;
+      const end = requireDate(args.endDate, "end date");
+      if (end.error) return end.error;
+      if (args.hours === undefined || args.hours === null || args.hours === "") return ask("How many hours are included in each period?", { missing: ["hours"] });
+      if (args.fee === undefined || args.fee === null || args.fee === "") return ask("What is the fee for each period?", { missing: ["fee"] });
+      const name = String(args.name || "").trim() || `${s.row.name} — ${r.row.name}`;
+      const mode = args.rollover === "rollover" ? "rollover" : "expire";
+      const input = {
+        name,
+        customerId: r.row.id,
+        serviceId: s.row.id,
+        startDate: start.date,
+        hours: Number(args.hours),
+        fee: Number(args.fee),
+        period: args.period === "quarter" ? "quarter" : "month",
+        autoPublish: Boolean(args.autoPublish),
+        rolloverPolicy: {
+          mode,
+          limitHours: args.rolloverCap !== undefined && args.rolloverCap !== null && args.rolloverCap !== "" ? Number(args.rolloverCap) : null,
+        },
+        ...(end.date ? { endDate: end.date } : {}),
+        ...(args.rate !== undefined && args.rate !== null && args.rate !== "" ? { rate: Number(args.rate) } : {}),
+        ...(args.overageRate !== undefined && args.overageRate !== null && args.overageRate !== "" ? { overageRate: Number(args.overageRate) } : {}),
+        ...(args.currency ? { currency: args.currency } : {}),
+      };
+      return {
+        tool, input,
+        title: `Create draft agreement ${name} for ${r.row.name}`,
+        details: [
+          { label: "Customer", value: r.row.name },
+          { label: "Service", value: s.row.name },
+          { label: "Start", value: fmtDate(start.date) },
+          ...(end.date ? [{ label: "End", value: fmtDate(end.date) }] : []),
+          { label: "Period", value: input.period === "quarter" ? "Calendar quarter" : "Calendar month" },
+          { label: "Hours", value: String(input.hours) },
+          { label: "Fee", value: formatMoney(input.fee, input.currency || r.row.currency || "ZAR") },
+          { label: "Unused hours", value: mode === "rollover" ? (input.rolloverPolicy.limitHours != null ? `Roll over, cap ${input.rolloverPolicy.limitHours}h` : "Roll over, no cap") : "Expire" },
+          { label: "Recurring invoices", value: input.autoPublish ? "Publish automatically" : "Create as drafts" },
         ],
       };
     }
@@ -519,6 +591,10 @@ async function executeAction(companyId, uid, email, role, tool, input) {
     case "propose_create_time_entry": {
       const e = await timeEntries.createTimeEntry(...who, { ...input, source: "assistant" });
       return { kind: "timeEntry", id: e.id, label: `${e.hours}h ${e.description}`, link: "/dashboard/time" };
+    }
+    case "propose_create_agreement": {
+      const a = await agreements.createAgreement(...who, input);
+      return { kind: "agreement", id: a.id, label: a.name, link: `/dashboard/agreements/${a.id}` };
     }
     case "propose_create_draft_invoice": {
       // Drafts only: never pass finalize.

@@ -16,6 +16,7 @@ const { buildStatement } = require("../lib/statements");
 const { listReceivables } = require("../lib/receivables");
 const creditNotes = require("../lib/creditNotes");
 const timeEntries = require("../lib/timeEntries");
+const agreements = require("../lib/agreements");
 const { importLocalInvoice } = require("../lib/importLocal");
 const { renderStatementHtml } = require("../lib/statementHtml");
 const { renderDocumentHtml } = require("../lib/documentHtml");
@@ -169,6 +170,8 @@ company.get("/time-entries", h(async (req) => ({
     from: req.query.from,
     to: req.query.to,
     invoiceId: req.query.invoiceId,
+    agreementId: req.query.agreementId,
+    periodId: req.query.periodId,
   }),
 })));
 company.post("/time-entries", h((req) => timeEntries.createTimeEntry(...actor(req), req.body || {}), 201));
@@ -176,6 +179,52 @@ company.post("/time-entries/invoice", h((req) => timeEntries.createInvoiceFromTi
 company.get("/time-entries/:entryId", h((req) => timeEntries.requireTimeEntry(req.companyId, req.params.entryId)));
 company.patch("/time-entries/:entryId", h((req) => timeEntries.updateTimeEntry(...actor(req), req.params.entryId, req.body || {})));
 company.delete("/time-entries/:entryId", h((req) => timeEntries.deleteTimeEntry(...actor(req), req.params.entryId)));
+
+
+// ---------- agreements ----------
+
+company.get("/agreements", h(async (req) => ({
+  agreements: await agreements.listAgreements(req.companyId, {
+    q: req.query.q,
+    customerId: req.query.customerId,
+    status: req.query.status,
+  }),
+})));
+company.get("/agreements/hours-report", h((req) =>
+  agreements.hoursReport(req.companyId, { agreementId: req.query.agreementId, customerId: req.query.customerId, asOf: req.query.asOf })
+));
+company.post("/agreements/run", h((req) =>
+  agreements.generateDueInvoices(...actor(req), { asOf: req.body?.asOf, agreementId: req.body?.agreementId })
+));
+company.post("/agreements", h((req) => agreements.createAgreement(...actor(req), req.body || {}), 201));
+company.get("/agreements/:agreementId", h(async (req) => {
+  const agreement = await agreements.requireAgreement(req.companyId, req.params.agreementId);
+  const { periods } = await agreements.listAgreementPeriods(req.companyId, req.params.agreementId, { asOf: req.query.asOf });
+  return { ...agreement, periods };
+}));
+company.patch("/agreements/:agreementId", h((req) => agreements.updateAgreement(...actor(req), req.params.agreementId, req.body || {})));
+company.delete("/agreements/:agreementId", h((req) => agreements.deleteAgreement(...actor(req), req.params.agreementId)));
+company.post("/agreements/:agreementId/activate", h((req) =>
+  agreements.setAgreementStatus(...actor(req), req.params.agreementId, "active", { asOf: req.body?.asOf })
+));
+company.post("/agreements/:agreementId/pause", h((req) =>
+  agreements.setAgreementStatus(...actor(req), req.params.agreementId, "paused")
+));
+company.post("/agreements/:agreementId/resume", h((req) =>
+  agreements.setAgreementStatus(...actor(req), req.params.agreementId, "active", { asOf: req.body?.asOf })
+));
+company.post("/agreements/:agreementId/end", h((req) =>
+  agreements.setAgreementStatus(...actor(req), req.params.agreementId, "ended", { endDate: req.body?.endDate, asOf: req.body?.asOf })
+));
+company.post("/agreements/:agreementId/run", h((req) =>
+  agreements.generateDueInvoices(...actor(req), { asOf: req.body?.asOf, agreementId: req.params.agreementId })
+));
+company.get("/agreements/:agreementId/periods", h((req) =>
+  agreements.listAgreementPeriods(req.companyId, req.params.agreementId, { asOf: req.query.asOf })
+));
+company.get("/agreements/:agreementId/hours-report", h((req) =>
+  agreements.hoursReport(req.companyId, { agreementId: req.params.agreementId, asOf: req.query.asOf })
+));
 
 // ---------- products ----------
 

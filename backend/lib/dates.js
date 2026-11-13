@@ -24,6 +24,18 @@ function todayIso(now = new Date()) {
   return toIsoDate(now);
 }
 
+/** Civil date in a named zone (default Africa/Johannesburg). */
+function todayIsoInZone(timeZone = "Africa/Johannesburg", now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 function addDaysIso(iso, days) {
   const base = toIsoDate(iso);
   if (!base) return "";
@@ -70,6 +82,7 @@ function inRange(iso, from, to) {
 module.exports = {
   toIsoDate,
   todayIso,
+  todayIsoInZone,
   addDaysIso,
   daysBetween,
   monthKey,

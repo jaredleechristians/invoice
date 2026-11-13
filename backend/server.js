@@ -308,8 +308,11 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+const { startRecurringInvoiceScheduler } = require("./lib/agreements");
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`API          http://0.0.0.0:${PORT}/`);
   console.log(`PDF proxy    POST /api/pdf → ${GOTENBERG_CONVERT_URL}`);
   console.log(`Chat proxy   POST /api/chat → ${OPENAI_CHAT_URL} (${OPENAI_MODEL})`);
+  startRecurringInvoiceScheduler();
 });
