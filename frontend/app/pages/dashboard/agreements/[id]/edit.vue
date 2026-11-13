@@ -116,7 +116,7 @@ watch([id, useDataVersion()], load, { immediate: true });
   <div class="mx-auto max-w-3xl space-y-6">
     <PageHeader title="Edit agreement" />
     <UCard v-if="!loading">
-      <AgreementForm v-model="form" :customers="customers" :services="services" :currencies="currencies" :error="error" :locked="locked" />
+      <AgreementForm :model-value="form" :customers="customers" :services="services" :currencies="currencies" :error="error" :locked="locked" @update:model-value="Object.assign(form, $event)" />
       <template #footer>
         <div class="flex flex-wrap justify-end gap-2">
           <UButton variant="ghost" color="neutral" :to="`/dashboard/agreements/${id}`">Cancel</UButton>

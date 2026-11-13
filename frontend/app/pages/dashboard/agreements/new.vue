@@ -79,7 +79,7 @@ onMounted(load);
   <div class="mx-auto max-w-3xl space-y-6">
     <PageHeader title="New agreement" info="Save as a draft first, or activate to start generating recurring invoices for periods that have already begun." />
     <UCard>
-      <AgreementForm v-model="form" :customers="customers" :services="services" :currencies="currencies" :error="error" />
+      <AgreementForm :model-value="form" :customers="customers" :services="services" :currencies="currencies" :error="error" @update:model-value="Object.assign(form, $event)" />
       <template #footer>
         <div class="flex flex-wrap justify-end gap-2">
           <UButton variant="ghost" color="neutral" to="/dashboard/agreements">Cancel</UButton>

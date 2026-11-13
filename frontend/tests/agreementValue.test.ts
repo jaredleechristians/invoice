@@ -107,3 +107,28 @@ test("a pre-1.10 agreement reads as one time-tracked form line", async () => {
   assert.deepEqual(payload[1], { serviceId: "h", description: "Hosting", qty: 1, rate: null, includedQty: null, overageRate: null, tracksTime: false });
   assert.equal(payload[0].includedQty, 20);
 });
+
+test("Object.assign applies an AgreementForm emit onto a reactive page form so qty and rate update the value without a service", async () => {
+  const { reactive } = await import("vue");
+  const form = reactive({
+    name: "",
+    customerId: "",
+    lines: [{ key: "1", serviceId: "", description: "", qty: 1, rate: "", includedQty: "", overageRate: "", tracksTime: true }],
+    startDate: "2026-01-01",
+    endDate: "",
+    period: "month" as const,
+    currency: "",
+    autoPublish: false,
+    rolloverMode: "expire" as const,
+    limitHours: "",
+  });
+  // AgreementForm emits a whole new object. v-model cannot reassign a const reactive,
+  // so the new/edit pages Object.assign the emit onto the existing form.
+  Object.assign(form, { ...form, lines: [{ ...form.lines[0], qty: 1, rate: 10 }] });
+  assert.equal(form.lines[0].qty, 1);
+  assert.equal(form.lines[0].rate, 10);
+  assert.equal(form.lines[0].serviceId, "");
+  const v = agreementValue({ lines: form.lines, startDate: form.startDate, endDate: form.endDate, period: form.period });
+  assert.equal(v?.monthlyValue, 10);
+  assert.equal(v?.annualValue, 120);
+});
