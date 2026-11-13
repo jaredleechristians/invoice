@@ -1,7 +1,7 @@
 # Phase 2: Customers, agreements and time (design note)
 
-Status: draft for review, 12 Nov 2026. Docs PR is not a merge request for production.
-Base: v1.6.1 on `main` (production is on 1.6.1). Phase 1 ledger is live.
+Status: decisions recorded, 13 Nov 2026. Docs PR is not a merge request for production.
+Base: v1.6.1 on `main` (production is on 1.6.1). Phase 1 ledger is live. 1.7.0 is implemented in PR #18 (not merged).
 Roadmap: Phase 2 of the accounting roadmap — customers, agreements and time. Build on the existing customers collection; do not replace it.
 
 ## 1. Goals and non-goals
@@ -13,12 +13,12 @@ Goals
 - Internal time entries, entered by hand or through the assistant, plus ad hoc billable hours outside any agreement that can be invoiced once and then marked billed.
 - Agreements (the retainer feature): a period, hours, fee, rates and a rollover policy, linked to a recurring billable service.
 - Recurring invoices, agreement periods (hours used and remaining), and hours reports.
-- Payment reminders as drafts or a list only. The app must never send email automatically without explicit approval in the app.
+- Payment reminders: an overdue list, a manual send, and optional automatic email on a company schedule. Automatic sending is a company setting and defaults to **off**, so nothing emails a customer until Jared turns it on. Each send is logged against the invoice; the same schedule step is never sent twice.
 
 Non-goals (Phase 2)
 - Jira or GitHub sync, linking agreements to Jira projects, or pulling worklogs. Those stay on the backlog.
 - Task management and CRM inside the app.
-- Automatic email sending of invoices, statements or reminders.
+- Automatic email sending of invoices or statements (reminders are the exception, and only once the company setting is turned on).
 - Replacing or migrating the existing `customers` collection, statements, or company-level payment terms.
 - Financial statements, period locks and year-end (Phase 3), supplier bills (Phase 4), VAT201 (Phase 5).
 - Paystack/Wise payment links (still backlog).
@@ -37,7 +37,7 @@ Ledger posting (Phase 1) already covers invoices, payments, expenses, bank match
 
 Products and services already support a catalogue used on invoice lines. Agreements link to a recurring billable service in that catalogue (or a service created for the agreement). Recurring invoices are invoices, not a new money document.
 
-The assistant may propose writes (never finalize, void or delete). Time entries can be added manually or proposed by the assistant. Publishing a credit note, a recurring invoice or a reminder email is never an unattended assistant action.
+The assistant may propose writes (never finalize, void or delete). Time entries can be added manually or proposed by the assistant. Publishing a credit note, a recurring invoice or a reminder email is never an unattended assistant action. Auto-publish of a recurring invoice (when the agreement allows it) is an app/scheduler action, not an assistant action.
 
 ## 3. Data model (Firestore, company-scoped)
 
@@ -83,17 +83,21 @@ Numbering follows `lib/numbering.js`: a `creditNotes` sequence, default prefix `
 Internal time, not a money document. Posted to the ledger only if and when it is invoiced.
 
 ```
-date, minutes (or hours), person (uid or free-text name)
-customerId                        // optional
+date, minutes                     // minutes is the stored unit; hours = minutes / 60
+personUid?, personName            // uid and/or free-text name
+customerId?                       // optional; required to invoice ad hoc hours
 description, notes
 billable: false                   // internal default; true only for ad hoc billable hours
-agreementId, periodId             // optional; used when the entry is against an agreement
-invoiceId, billedAt               // set when included on a published invoice; prevents double billing
+rate?                             // optional unit rate used when invoicing ad hoc hours
+currency?                         // rate currency; defaults to the customer's / company currency
+agreementId, periodId             // optional; used from 1.9.0 when the entry is against an agreement
+invoiceId, billedAt               // invoiceId is set when the entry is on a draft or published invoice
+                                  // billedAt is set when that invoice is published; prevents double billing
 source: "manual" | "assistant"
 createdAt, updatedAt, createdBy, deletedAt
 ```
 
-Ad hoc billable hours are time entries with `billable: true` and no `agreementId`. They can be selected onto an invoice line and are then marked billed. Unbilled billable entries stay available to invoice.
+Ad hoc billable hours are time entries with `billable: true` and no `agreementId`. They can be selected onto an invoice line (`items[].timeEntryId`) and are then marked billed. Unbilled billable entries stay available to invoice. Putting an entry on a draft invoice reserves it (`invoiceId` set, `billedAt` empty) so it cannot be added to a second invoice. Voiding or deleting the invoice, or removing the line from the invoice, clears the mark. Restoring a published invoice sets the mark again if the amount still belongs on that invoice.
 
 ### 3.4 Agreements — `companies/{companyId}/agreements/{id}` (1.9.0)
 
@@ -103,44 +107,81 @@ The retainer feature. Linked to a recurring billable service (a product/service)
 customerId
 name, status: "draft" | "active" | "paused" | "ended"
 startDate, endDate?               // open-ended allowed
-period: "month" | "quarter"       // length of each agreement period
-hours, fee, currency, rate        // included hours and the period fee
-overageRate                       // rate for hours above the allowance (open decision)
-rolloverPolicy                    // open decision; stored once agreed
+period: "month" | "quarter"       // calendar months, or calendar quarters (Jan–Mar, Apr–Jun, …)
+hours, fee, currency, rate        // included hours and the period fee (standard rate)
+overageRate?                      // rate for hours above the allowance; if unset, use `rate`
+rolloverPolicy: {
+  mode: "expire" | "rollover"     // configured per agreement
+  limitHours: number | null       // only when mode is "rollover"; null / blank = no cap
+}
 serviceId                         // product/service used on the recurring invoice
+autoPublish: false                // per agreement: recurring invoices are drafts unless this is true
 createdAt, updatedAt, createdBy, deletedAt
 ```
 
 ### 3.5 Agreement periods — `companies/{companyId}/agreementPeriods/{id}` (1.9.0)
 
-One document per period of an agreement.
+One document per calendar period of an agreement. Periods follow calendar months (or calendar quarters). They do not run as anniversary windows from the start date.
 
 ```
-agreementId, startsOn, endsOn
-hoursAllowed, hoursRolledIn, hoursUsed, hoursRemaining, hoursExpired
-recurringInvoiceId                // once the period's invoice exists
+agreementId, startsOn, endsOn     // inclusive dates
+daysInPeriod, daysInFullPeriod    // for proration (equal when the period is a full month or quarter)
+prorated: boolean
+hoursAllowed                      // agreement.hours, or the prorated allowance for a partial first/last period
+hoursRolledIn                     // unused hours brought from the previous period (not prorated)
+hoursUsed, hoursRemaining, hoursExpired, hoursOverage
+fee                               // agreement.fee, or the prorated fee for a partial first/last period
+recurringInvoiceId                // the invoice for this period's fee (overage from the *previous* period may also be a line on it)
 status: "open" | "closed"
 ```
 
-Hours used come from time entries (and any manual adjustments) linked to the period. Remaining and rollover are computed when the period closes, according to the agreed policy.
+Hours used come from time entries (and any manual adjustments) linked to the period. Remaining, rollover, expiry and overage are computed when the period closes, according to the agreement's policy.
 
 ### 3.6 Recurring invoice series — `companies/{companyId}/recurringInvoices/{id}` (1.9.0)
 
-A schedule that creates ordinary invoices (drafts, unless Jared chooses auto-publish).
+A schedule that creates ordinary invoices. Draft vs auto-publish is taken from the linked agreement (`agreements.autoPublish`). Standalone recurring invoices (no agreement) default to drafts.
 
 ```
 customerId, agreementId?          // agreement retainers use this; standalone recurring is allowed
 serviceId, items[], currency, vatRate, notes
 frequency, nextIssueDate, paymentTermsDays?
-autoPublish: false                // default; see open decisions
+autoPublish: false                // copied from the agreement when linked; otherwise default false
 active, createdAt, updatedAt, createdBy
 ```
 
 Generated invoices are normal `invoices` with `recurringInvoiceId` / `agreementPeriodId` so they can be traced. They post to the ledger only when published, through the existing invoice posting path.
 
-### 3.7 Payment reminders (1.10.0, after the open decision)
+### 3.7 Payment reminders (1.10.0)
 
-A reminder is a list row and, if useful, a draft document the user can review. It is never emailed unless the user explicitly approves a send in the app. No collection is created until that decision is taken. 1.7.0 does not implement reminders.
+Company setting, default **off**. Until it is turned on, nothing is emailed automatically. The overdue list and a manual send are still available.
+
+```
+paymentReminders: {
+  enabled: false                  // default off
+  steps: [                        // days relative to the invoice due date
+    { days: -3 },                 // suggested defaults once enabled: 3 days before,
+    { days: 0 },                  // on the due date,
+    { days: 7 },                  // 7 days after,
+    { days: 14 },                 // 14 days after
+  ]
+}
+```
+
+Negative `days` is before the due date, `0` is on the due date, positive is after (overdue). The suggested steps above are a starting point when the setting is first turned on; Jared can change them.
+
+Each send is logged on the invoice so the same step cannot be sent twice:
+
+```
+// companies/{companyId}/invoices/{invoiceId}/reminderLog/{stepDays}
+stepDays, sentAt, sentBy          // "schedule" or the user's uid
+via: "schedule" | "manual"
+```
+
+A manual send of a scheduled step records that step and prevents the scheduler from sending it again. A one-off manual send that is not a scheduled step is also logged, with a distinct key, and does not block other steps.
+
+The app still shows an overdue list (using the customer's terms). Publishing or sending a reminder email is never an unattended assistant action. Automatic reminder email (when enabled) is an app/scheduler action. Invoices and statements are not auto-emailed.
+
+1.7.0 and 1.8.0 do not implement reminders. 1.10.0 will also need an outbound email path (the app does not send mail today); the from-address and provider are an implementation choice for that slice.
 
 ## 4. Credit notes and the ledger (1.7.0)
 
@@ -152,23 +193,51 @@ On publish, in the same transaction as the document write:
 
 Void (owner/admin) reverses the journal on the void date and un-applies the amount from the invoice. Soft delete of a published, non-void credit note reverses on the original issue date, same as invoices. Restore re-posts if the invoice is still there and the amount still fits.
 
-Unallocated or multi-invoice credit notes are out of 1.7.0 (see open decisions). A credit note always targets one published invoice of the same customer and currency.
+Unallocated or multi-invoice credit notes are out of 1.7.0. A credit note always targets one published invoice of the same customer and currency.
 
 Payments still cannot overpay an invoice; the cap is the remaining outstanding after credits. Credit notes cannot exceed remaining outstanding after payments.
 
 ## 5. Terms, credit limits and age analysis (1.7.0)
 
 - New invoices: if the customer has `paymentTermsDays`, that sets the default due date; otherwise the company default. An explicit due date on the invoice still wins.
-- Credit limit is optional. It is shown on the customer and on aged receivables (outstanding vs limit, per the customer's currency). Publishing an invoice that would take that currency's outstanding over the limit **warns** in the UI and on the API response, but does not block. This is a 1.7.0 default so work can start; Jared can tighten it to a hard block later.
+- Credit limit is optional. It is shown on the customer and on aged receivables (outstanding vs limit, per the customer's currency). Publishing an invoice that would take that currency's outstanding over the limit **warns** in the UI and on the API response, but does not block. Owners and admins can still publish. This is the decided behaviour (and is what PR #18 implements).
 - Age analysis stays on Reports (and `get_receivables`): same buckets, as-of date, split by currency, now net of credit notes, with optional credit-limit columns. No new ageing report is invented.
 
-## 6. Time, agreements, recurring invoices and hours (later slices)
+## 6. Time, agreements, recurring invoices and hours
 
-1.8.0 ships time entries and ad hoc billable hours only. Internal time is non-billable by default so it cannot be invoiced by accident. The assistant can propose time entries; a person confirms them. Billing an ad hoc entry sets `invoiceId` / `billedAt` and the entry cannot be billed again. Unticking billed or voiding/deleting the invoice clears the mark (open to the same restore rules as other documents).
+### 6.1 Time entries and ad hoc billable hours (1.8.0)
 
-1.9.0 ships agreements, periods, recurring invoices and hours reports. Several billing rules are open (section 9). Until Jared answers, no agreement or recurring-invoice code is written that assumes a rollover, overage or auto-publish behaviour.
+1.8.0 ships time entries and ad hoc billable hours only. Internal time is non-billable by default so it cannot be invoiced by accident. The assistant can propose time entries; a person confirms them. Billing an ad hoc entry sets `invoiceId` / `billedAt` and the entry cannot be billed again. Removing the line, or voiding or deleting the invoice, clears the mark (restore of a published invoice sets it again).
 
-Hours reports (1.9.0) show, per customer/agreement/period: allowed, used, remaining, rolled, expired, and billed hours. Time used against an agreement counts toward the period; ad hoc billable hours are reported separately.
+Agreement-linked time waits for 1.9.0. 1.8.0 may store `agreementId` / `periodId` as empty and should not assume rollover or overage behaviour.
+
+### 6.2 Agreements, periods, recurring invoices and hours reports (1.9.0)
+
+**Period alignment.** Periods follow calendar months. A monthly agreement uses 1 Jan–31 Jan, 1 Feb–28/29 Feb, and so on. A quarterly agreement uses calendar quarters: 1 Jan–31 Mar, 1 Apr–30 Jun, 1 Jul–30 Sep, 1 Oct–31 Dec.
+
+**Prorated first (and last) period.** If `startDate` is not the first day of the calendar period, the first period runs from `startDate` through the last day of that month (or quarter). If `endDate` is set and is not the last day of a calendar period, the last period runs from the first day of that month or quarter (or `startDate`, if later) through `endDate`. Full periods in between use the full allowance and fee.
+
+Allowance and fee are prorated by inclusive day count:
+
+```
+fraction      = daysInPeriod / daysInFullCalendarPeriod
+hoursAllowed  = round to 2 decimal places (agreement.hours × fraction)
+fee           = roundMoney(agreement.fee × fraction)
+```
+
+`daysInPeriod` includes both `startsOn` and `endsOn`. `daysInFullCalendarPeriod` is the number of days in that calendar month or quarter.
+
+Example: start 15 Jan 2026, monthly, 10 hours, fee R10,000. January has 31 days. The first period is 15–31 Jan (17 days). fraction = 17/31. hoursAllowed = 10 × 17/31 = 5.48 hours. fee = 10,000 × 17/31 = R5,483.87.
+
+Hours rolled in from the previous period are added in full; they are not prorated. Only that period's own allowance and fee are prorated.
+
+**Rollover.** Configured per agreement. `mode: "expire"` — unused hours (`hoursAllowed + hoursRolledIn − hoursUsed`, if positive) expire when the period closes. `mode: "rollover"` — unused hours roll into the next period as `hoursRolledIn`. If `limitHours` is set, rolled hours are capped at that limit and the rest expire. If `limitHours` is null or blank, there is no cap.
+
+**Overage.** Hours used above `hoursAllowed + hoursRolledIn` are overage. They are **not** billed when the period closes. They are added as a line on the **next** recurring invoice (the following period's invoice), at `overageRate`, or at the standard `rate` if no overage rate is set. If the agreement has ended and no further period invoice is scheduled, generate one more invoice for the overage only, using that agreement's draft / auto-publish setting.
+
+**Recurring invoices.** Each agreement has `autoPublish` (default false). Generated invoices are drafts unless that agreement's setting is true. Auto-publish is an app/scheduler action, not an assistant action.
+
+**Hours reports.** Per customer, agreement and period: allowed, used, remaining, rolled in, expired, overage, and billed hours. Time used against an agreement counts toward the period; ad hoc billable hours are reported separately.
 
 ## 7. API, UI and MCP
 
@@ -179,45 +248,43 @@ Hours reports (1.9.0) show, per customer/agreement/period: allowed, used, remain
 - Reports aged receivables and outstanding invoices subtract credits and can show the limit.
 - MCP: read `list_credit_notes` / `get_credit_note`; write keys can `create_draft_credit_note` (never auto-publish). `get_receivables` stays and includes credits.
 
-1.8.0 / 1.9.0 add time, agreement and recurring resources on the same pattern (draft-safe assistant tools, API keys follow role permissions). Reminder tools wait for 1.10.0.
+1.8.0 adds time entries (CRUD, filters, invoice-from-unbilled-hours) and MCP `list_time_entries` / `get_time_entry` / `create_time_entry`. The assistant proposes time entries; it does not invoice them. 1.9.0 adds agreement and recurring resources on the same pattern (draft-safe assistant tools, API keys follow role permissions). Reminder tools wait for 1.10.0.
 
 ## 8. Testing
 
-Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. Later slices add time, billing-once, and (once decided) agreement/recurring cases.
+Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. 1.8.0 adds time entries, invoicing ad hoc hours, and the once-only billed mark (including void/delete/restore of the invoice). 1.9.0 covers proration, rollover, overage-on-the-next-invoice, and draft vs auto-publish. 1.10.0 covers the reminder schedule (default off), logging, no duplicate steps, and manual send.
 
-## 9. Open decisions (need Jared)
-
-Short questions, with a recommended default. 1.7.0 does not depend on these except where noted.
+## 9. Decisions (answered 13 Nov 2026)
 
 1. **Rollover of unused agreement hours?**
-   Recommended default: unused hours roll into the next period only, capped at one period's allowance; hours older than that expire. Alternatives: no rollover, or unlimited roll.
+   Configurable per agreement. Mode is either **expire** or **roll over**. Roll over has an optional limit in hours; a blank limit means no limit.
 
 2. **How is overage billed?**
-   Recommended default: when a period closes, hours above the allowance (after rollover) are added as a separate line (or a follow-up invoice) at the agreement's overage rate, or at the standard rate if no overage rate is set. Do not auto-bill mid-period.
+   Add overage as a line on the **next** recurring invoice, at the overage rate, or the standard rate if none is set. Do not bill overage at period close.
 
 3. **Recurring invoices: draft or auto-publish?**
-   Recommended default: always generate drafts for review, never auto-publish. Matches how the assistant and API keys treat new invoices today.
+   A setting on each agreement. Default remains drafts (`autoPublish: false`) unless the agreement turns auto-publish on.
 
 4. **What do payment reminders do?**
-   Recommended default: a list of overdue invoices (using the customer's terms) plus an optional draft reminder you can review. Nothing is emailed unless the user explicitly approves a send in the app. There is no automatic schedule that sends mail on its own.
+   Reminders can email automatically on a company schedule (days before or after the due date). The setting defaults to **off**, so nothing emails customers until it is turned on. Each send is logged against the invoice; the same step is never sent twice. Also include a manual send and the overdue list. Invoices and statements stay manual.
 
 5. **Credit limit: warn or block publish?**
-   Recommended default (used in 1.7.0 so the slice can ship): warn on the invoice and on ageing, allow the owner/admin to publish anyway. Can be changed to a hard block later.
+   Warn; owners and admins can still publish. This is what PR #18 already does. No change to 1.7.0.
 
 6. **Must a credit note always link to one invoice?**
-   Recommended default (used in 1.7.0): yes, same customer and currency, applied immediately to that invoice. Unallocated or multi-invoice credits can wait.
+   Yes in 1.7.0: same customer and currency, applied immediately to that invoice. Unallocated or multi-invoice credits can wait. No change to 1.7.0.
 
 7. **How do agreement periods line up?**
-   Recommended default: anniversary periods from the agreement's start date (start 15 Jan → 15 Jan–14 Feb for a monthly agreement), not necessarily calendar months.
+   Calendar months (and calendar quarters when the agreement period is quarterly). A start date in the middle of a month gives a prorated first period; see section 6.2 for the day-count formula and a worked example.
 
 ## 10. Slice plan
 
 | Slice | Scope | Notes |
 | --- | --- | --- |
-| **1.7.0** | Credit notes (ledger reversals, apply to one invoice, void/delete/restore, PDF). Customer payment terms and credit limits. Debtors age analysis extended (credits + limits). Statements include credits. | Uses the defaults in questions 5 and 6. No reminders. No catch-up/backfill (production may already have invoices after 1.6.1; credits only apply when a user issues one). |
-| **1.8.0** | Time entries (internal, manual or assistant). Ad hoc billable hours, invoice them, mark billed so they cannot be billed twice. | Does not depend on the agreement decisions. |
-| **1.9.0** | Agreements, recurring invoices, agreement periods (hours used and remaining), hours reports. | Starts once questions 1, 2, 3 and 7 are answered. Until then the design is documented, not coded. |
-| **1.10.0** | Payment reminders as drafts or a list only. | Starts once question 4 is answered. No automatic email send without in-app approval. |
+| **1.7.0** | Credit notes (ledger reversals, apply to one invoice, void/delete/restore, PDF). Customer payment terms and credit limits. Debtors age analysis extended (credits + limits). Statements include credits. | PR #18. Uses decided behaviour for questions 5 and 6. No reminders. No catch-up/backfill (credits only apply when a user issues one). |
+| **1.8.0** | Time entries (internal, manual or assistant). Ad hoc billable hours, invoice them, mark billed so they cannot be billed twice. | Does not depend on agreement code. |
+| **1.9.0** | Agreements, recurring invoices, agreement periods (hours used and remaining, proration, rollover, overage on the next invoice), hours reports. | Decisions 1, 2, 3 and 7 are recorded above. |
+| **1.10.0** | Payment reminders: overdue list, manual send, company schedule default off, log each send, no duplicate steps. | Decision 4 is recorded above. Needs an outbound email path. |
 
 Do not merge or deploy a slice until Jared authorises it. Firestore rules do not need new match blocks for these collections (the existing catch-all already allows member reads and denies client writes); any new composite indexes must be real composites, not single-field ones.
 
@@ -227,5 +294,5 @@ Do not merge or deploy a slice until Jared authorises it. Firestore rules do not
 - The retainer feature is called **Agreements**, and an agreement links to a recurring billable service.
 - Time tracking in this phase is internal time entries only (manual or assistant). Jira/GitHub sync, task management and CRM are out of scope.
 - Ad hoc billable hours outside an agreement can be entered manually, invoiced, and marked billed.
-- Payment reminders are drafts or a list only; no automatic email without explicit approval in the app.
+- Credit limits warn; owners and admins can still publish (1.7.0 / PR #18).
 - Production is on 1.6.1. Phase 1 ledger posting is already live.
