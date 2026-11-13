@@ -1,6 +1,6 @@
 {
   "name": "invoice-api",
-  "version": "1.6.1",
+  "version": "1.6.4",
   "private": true,
   "main": "server.js",
   "scripts": {
