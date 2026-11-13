@@ -17,6 +17,7 @@ const KINDS = {
   bankAccount: "bankAccounts",
   creditNote: "creditNotes",
   timeEntry: "timeEntries",
+  agreement: "agreements",
 };
 
 async function restoreRecord(companyId, uid, email, role, kind, id) {

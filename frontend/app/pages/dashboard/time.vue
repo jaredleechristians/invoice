@@ -20,9 +20,13 @@ type TimeEntry = {
   invoiceId?: string;
   billedAt?: string | null;
   source?: string;
+  agreementId?: string;
+  agreementName?: string;
+  periodId?: string;
 };
 
 type Customer = { id: string; name: string };
+type Agreement = { id: string; name: string; status: string; customerId: string; customerName?: string };
 
 const { activeCompanyId, capi, cpost, cpatch, cdelete } = useCompanyApi();
 const { company, ensure, isAdmin } = useCompany();
@@ -31,6 +35,7 @@ const toast = useToast();
 
 const entries = ref<TimeEntry[]>([]);
 const customers = ref<Customer[]>([]);
+const agreements = ref<Agreement[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const invoicing = ref(false);
@@ -41,7 +46,7 @@ const editingId = ref("");
 const selected = ref<string[]>([]);
 const invoiceRate = ref<number | null>(null);
 const q = ref("");
-const filters = reactive({ from: "", to: "", customerId: "", status: "" });
+const filters = reactive({ from: "", to: "", customerId: "", agreementId: "", status: "" });
 const filterRange = computed({
   get: () => ({ from: filters.from, to: filters.to }),
   set: (v: { from: string; to: string }) => Object.assign(filters, v),
@@ -54,6 +59,7 @@ const blank = () => ({
   description: "",
   notes: "",
   customerId: "",
+  agreementId: "",
   personName: user.value?.displayName || user.value?.email || "",
   billable: false,
   rate: null as number | null,
@@ -64,14 +70,17 @@ const filtered = computed(() => {
   const needle = q.value.trim().toLowerCase();
   return entries.value.filter((e) => {
     if (filters.customerId && e.customerId !== filters.customerId) return false;
+    if (filters.agreementId && e.agreementId !== filters.agreementId) return false;
     if (filters.status === "unbilled" && (e.status !== "unbilled")) return false;
     if (filters.status === "billed" && e.status !== "billed") return false;
     if (filters.status === "internal" && e.status !== "internal") return false;
     if (filters.status === "billable" && !e.billable) return false;
-    if (needle && !`${e.description} ${e.notes || ""} ${e.personName || ""} ${e.customerName || ""}`.toLowerCase().includes(needle)) return false;
+    if (needle && !`${e.description} ${e.notes || ""} ${e.personName || ""} ${e.customerName || ""} ${e.agreementName || ""}`.toLowerCase().includes(needle)) return false;
     return true;
   });
 });
+
+const loggableAgreements = computed(() => agreements.value.filter((a) => a.status === "active" || a.status === "paused"));
 
 const selectedEntries = computed(() => entries.value.filter((e) => selected.value.includes(e.id)));
 const canInvoice = computed(() => {
@@ -97,6 +106,7 @@ function edit(e: TimeEntry) {
     description: e.description,
     notes: e.notes || "",
     customerId: e.customerId || "",
+    agreementId: e.agreementId || "",
     personName: e.personName || "",
     billable: e.billable,
     rate: e.rate ?? null,
@@ -114,12 +124,14 @@ async function load() {
     if (filters.from) params.set("from", filters.from);
     if (filters.to) params.set("to", filters.to);
     const qs = params.toString() ? `?${params}` : "";
-    const [t, c] = await Promise.all([
+    const [t, c, a] = await Promise.all([
       capi<{ timeEntries: TimeEntry[] }>(`/time-entries${qs}`),
       capi<{ customers: Customer[] }>("/customers"),
+      capi<{ agreements: Agreement[] }>("/agreements").catch(() => ({ agreements: [] as Agreement[] })),
     ]);
     entries.value = t.timeEntries;
     customers.value = c.customers;
+    agreements.value = a.agreements;
     selected.value = selected.value.filter((id) => entries.value.some((e) => e.id === id && !e.invoiceId));
   } catch (e) {
     error.value = errMsg(e, "Failed to load time entries");
@@ -138,8 +150,9 @@ async function save() {
       description: form.description,
       notes: form.notes,
       customerId: form.customerId || "",
+      agreementId: form.agreementId || "",
       personName: form.personName,
-      billable: form.billable,
+      billable: form.agreementId ? false : form.billable,
       rate: form.billable && form.rate != null && form.rate !== ("" as unknown) && !Number.isNaN(Number(form.rate)) ? Number(form.rate) : null,
     };
     if (editingId.value) await cpatch(`/time-entries/${editingId.value}`, payload);
@@ -189,18 +202,39 @@ async function invoiceSelected() {
   }
 }
 
+watch(() => form.agreementId, (id) => {
+  if (!id) return;
+  const a = agreements.value.find((x) => x.id === id);
+  if (a) {
+    form.customerId = a.customerId;
+    form.billable = false;
+  }
+});
+
+const route = useRoute();
+watch(
+  () => route.query.agreementId,
+  (id) => {
+    if (id) filters.agreementId = String(id);
+  },
+  { immediate: true }
+);
+
 watch([activeCompanyId, useDataVersion()], load, { immediate: true });
 watch(() => ({ from: filters.from, to: filters.to }), load);
 </script>
 
 <template>
   <div class="space-y-6">
-    <PageHeader info="Internal time is not billed. Ad hoc billable hours can be invoiced once, then they are marked billed so they cannot be billed twice.">
+    <PageHeader info="Internal time is not billed. Time logged against an agreement counts toward that period and is not invoiced separately. Ad hoc billable hours can be invoiced once, then they are marked billed so they cannot be billed twice.">
       <template #filters>
         <UInput v-model="q" placeholder="Search description or person" class="w-full sm:w-64" icon="i-lucide-search" />
         <DatePicker v-model="filterRange" range :presets="DATE_PRESETS" clearable placeholder="All dates" />
         <div class="w-full sm:w-52">
           <AppSelect v-model="filters.customerId" searchable placeholder="All customers" :options="customers.map((c) => ({ label: c.name, value: c.id }))" />
+        </div>
+        <div class="w-full sm:w-52">
+          <AppSelect v-model="filters.agreementId" searchable placeholder="All agreements" :options="agreements.map((a) => ({ label: a.name, value: a.id }))" />
         </div>
         <div class="w-full sm:w-44">
           <AppSelect
@@ -239,11 +273,15 @@ watch(() => ({ from: filters.from, to: filters.to }), load);
           </div>
           <UFormField label="What did you work on?" required><UInput v-model="form.description" class="w-full" /></UFormField>
           <UFormField label="Person"><UInput v-model="form.personName" class="w-full" /></UFormField>
-          <UFormField label="Customer">
-            <AppSelect v-model="form.customerId" searchable placeholder="No customer" :options="customers.map((c) => ({ label: c.name, value: c.id }))" />
+          <UFormField label="Agreement">
+            <AppSelect v-model="form.agreementId" searchable placeholder="No agreement (ad hoc or internal)" :options="loggableAgreements.map((a) => ({ label: a.name, value: a.id }))" />
           </UFormField>
-          <UCheckbox v-model="form.billable" label="Ad hoc billable hours (can be invoiced later)" />
-          <UFormField v-if="form.billable" label="Hourly rate (optional)">
+          <UFormField label="Customer">
+            <AppSelect v-model="form.customerId" searchable placeholder="No customer" :disabled="Boolean(form.agreementId)" :options="customers.map((c) => ({ label: c.name, value: c.id }))" />
+          </UFormField>
+          <UCheckbox v-if="!form.agreementId" v-model="form.billable" label="Ad hoc billable hours (can be invoiced later)" />
+          <p v-else class="text-sm text-dimmed">This time counts toward the agreement period and is not invoiced separately.</p>
+          <UFormField v-if="form.billable && !form.agreementId" label="Hourly rate (optional)">
             <UInput v-model.number="form.rate" type="number" min="0" step="0.01" class="w-full" />
           </UFormField>
           <UFormField label="Notes"><UTextarea v-model="form.notes" :rows="3" class="w-full" /></UFormField>
@@ -264,6 +302,7 @@ watch(() => ({ from: filters.from, to: filters.to }), load);
         { accessorKey: 'date', header: 'Date' },
         { accessorKey: 'personName', header: 'Person' },
         { accessorKey: 'customerName', header: 'Customer' },
+        { accessorKey: 'agreementName', header: 'Agreement' },
         { accessorKey: 'description', header: 'Work' },
         { accessorKey: 'hours', header: 'Hours', meta: { class: { th: 'text-right', td: 'text-right' } } },
         { accessorKey: 'status', header: 'Status' },
@@ -281,6 +320,9 @@ watch(() => ({ from: filters.from, to: filters.to }), load);
         />
       </template>
       <template #date-cell="{ row }">{{ formatDate(row.original.date) }}</template>
+      <template #agreementName-cell="{ row }">
+        <NuxtLink v-if="row.original.agreementId" :to="`/dashboard/agreements/${row.original.agreementId}`" class="hover:underline">{{ row.original.agreementName || "Agreement" }}</NuxtLink>
+      </template>
       <template #hours-cell="{ row }"><span class="tabular-nums">{{ row.original.hours }}</span></template>
       <template #status-cell="{ row }">
         <UBadge :color="STATUS_COLORS[row.original.status] || 'neutral'" variant="subtle">{{ statusLabel(row.original.status) }}</UBadge>

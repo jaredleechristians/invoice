@@ -21,13 +21,14 @@ Everything is scoped per company. All writes go through the API (server-side che
 | Quotes | Own number sequence (`QUO-`), sent/accepted/declined/expired, convert to a draft invoice (once), duplicate, PDF |
 | Payments | Date, method, reference, note; partial payments; void (kept for audit) or delete; always in the invoice currency; overpayment rejected |
 | Credit notes | Linked to one published invoice; draft → publish (own CN- number); reduce outstanding and post a ledger reversal; void/delete/restore; PDF/HTML |
-| Time | Internal time entries (manual or assistant). Ad hoc billable hours can be invoiced once and are then marked billed so they cannot be billed twice. Voiding or deleting the invoice clears the mark. |
+| Time | Internal time entries (manual or assistant), optionally linked to an agreement period. Ad hoc billable hours can be invoiced once and are then marked billed so they cannot be billed twice. Voiding or deleting the invoice clears the mark. Agreement time counts toward the retainer and cannot be invoiced again. |
+| Agreements | Retainer linked to a customer and a billable service; calendar-month or quarter periods with a prorated first/last period (day-count); unused hours expire or roll over (optional cap); overage is added as a line on the next recurring invoice; invoices are drafts unless the agreement turns auto-publish on; hours report; soft delete; a scheduler plus a manual Run now |
 | Expenses | Date, vendor, category, amount, currency, notes, optional receipt (PDF/image ≤700 KB stored in Firestore); categories with defaults, rename and delete (blocked when used) |
-| Reports | Date range; per currency, no FX conversion: income by month, invoiced by month, income by customer, outstanding invoices, aged receivables (as of range end, net of credit notes, with credit limits), expenses by category, cash-basis P&L; CSV export |
+| Reports | Date range; per currency, no FX conversion: income by month, invoiced by month, income by customer, outstanding invoices, aged receivables (as of range end, net of credit notes, with credit limits), expenses by category, cash-basis P&L, agreement hours (allowed, used, rollover, overage); CSV export |
 | Home | Outstanding, overdue, this month's income and expenses per currency |
-| AI assistant | Answers questions from live data and can **propose** new customers, products, expenses, time entries, draft invoices/quotes, payments and simple field updates. Every write is shown as a confirmation card and only saved when the user presses Confirm. Never finalizes, voids or deletes. |
+| AI assistant | Answers questions from live data and can **propose** new customers, products, expenses, time entries, draft invoices/quotes, payments and simple field updates. Every write is shown as a confirmation card and only saved when the user presses Confirm. It can propose a draft agreement, but never activates one or publishes a recurring invoice. Never finalizes, voids or deletes. |
 
-Out of scope for now (the model leaves room): Paystack/Wise integrations, recurring invoices, emailing invoices, bank feeds.
+Out of scope for now (the model leaves room): Paystack/Wise integrations, emailing invoices, bank feeds. Payment reminders are planned for 1.10.0.
 
 ### Design decisions
 
@@ -95,7 +96,7 @@ Leave all three unset in production.
 
 - `members`, `invites`, `counters`, `customers`, `products`, `invoices`, `quotes`, `payments`, `creditNotes`, `timeEntries`, `expenses`, `expenseCategories`, `expenseReceipts`, `auditLog`, `assistantActions` (pending assistant proposals; server-only)
 
-Deletes are soft: the document stays with `deletedAt`/`deletedBy` (and an audit entry), and every list, get, report, statement, assistant and MCP tool skips it. Invoice and quote numbers are never reused. Owners and admins can undo with `POST /companies/:id/restore/:kind/:id` (kind: invoice, quote, customer, product, expense, payment, expenseCategory, bankAccount, creditNote, timeEntry). Deleted bank imports can't be restored; import the file again. Removing a member or revoking an invite is still a real delete.
+Deletes are soft: the document stays with `deletedAt`/`deletedBy` (and an audit entry), and every list, get, report, statement, assistant and MCP tool skips it. Invoice and quote numbers are never reused. Owners and admins can undo with `POST /companies/:id/restore/:kind/:id` (kind: invoice, quote, customer, product, expense, payment, expenseCategory, bankAccount, creditNote, timeEntry, agreement). Deleted bank imports can't be restored; import the file again. Removing a member or revoking an invite is still a real delete.
 
 Deploy `firestore.rules` and `firestore.indexes.json` with the Firebase CLI when you go live.
 
@@ -146,10 +147,10 @@ The API serves an [MCP](https://modelcontextprotocol.io) endpoint for AI assista
 ```
 
 **Tools.** Every key gets the read tools:
-`get_company`, `list_customers`, `get_customer`, `get_customer_statement`, `list_invoices`, `get_invoice`, `list_credit_notes`, `get_credit_note`, `list_time_entries`, `get_time_entry`, `list_quotes`, `list_products`, `get_receivables` (outstanding per customer and aged buckets), `get_reports` (income, expenses and profit by month, category and customer), `list_expenses`, `list_expense_categories`, `list_payments`, `list_bank_accounts`, `list_bank_transactions`, `get_bank_transaction_suggestions`.
+`get_company`, `list_customers`, `get_customer`, `get_customer_statement`, `list_invoices`, `get_invoice`, `list_credit_notes`, `get_credit_note`, `list_time_entries`, `get_time_entry`, `list_agreements`, `get_agreement`, `list_agreement_periods`, `get_hours_report`, `list_quotes`, `list_products`, `get_receivables` (outstanding per customer and aged buckets), `get_reports` (income, expenses and profit by month, category and customer), `list_expenses`, `list_expense_categories`, `list_payments`, `list_bank_accounts`, `list_bank_transactions`, `get_bank_transaction_suggestions`.
 
 **Read & write** keys also get:
-`create_customer`, `create_time_entry`, `create_draft_invoice`, `update_draft_invoice`, `create_draft_credit_note`, `publish_invoice`, `void_invoice`, `record_expense`, `record_payment` (published invoices only), `void_payment`, `reconcile_bank_transaction` (match an invoice, payment or expense, create an expense, mark a transfer, or ignore), `undo_bank_transaction`, `delete_invoice`, `delete_quote`, `delete_customer`, `delete_product`, `delete_expense`, `delete_payment`, `delete_bank_import` (all soft deletes), `restore_record`.
+`create_customer`, `create_time_entry`, `create_agreement` (draft only; activation and recurring invoice generation stay in the app), `create_draft_invoice`, `update_draft_invoice`, `create_draft_credit_note`, `publish_invoice`, `void_invoice`, `record_expense`, `record_payment` (published invoices only), `void_payment`, `reconcile_bank_transaction` (match an invoice, payment or expense, create an expense, mark a transfer, or ignore), `undo_bank_transaction`, `delete_invoice`, `delete_quote`, `delete_customer`, `delete_product`, `delete_expense`, `delete_payment`, `delete_bank_import` (all soft deletes), `restore_record`.
 
 Void and delete need an owner or admin key, as in the app. No tools change settings, bank accounts, members, invites or API keys. Lists return `{ total, offset, items, nextOffset }` (25 rows by default, 100 at most). Writes are audit-logged with `via: "mcp"` and the `apiKeyId`. The key's rate limit applies.
 

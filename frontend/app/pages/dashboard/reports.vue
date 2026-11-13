@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
-import { datePresets, formatCurrency, formatDate, todayIso } from "~/utils/money";
+import { datePresets, formatCurrency, formatDate, todayIso, statusLabel } from "~/utils/money";
 import { EXPORT_FORMATS, REPORT_EXPORTS, downloadReport, type ReportExport } from "~/utils/reportExports";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
@@ -28,6 +28,11 @@ const range = reactive({ from: `${today.slice(0, 4)}-01-01`, to: today });
 const data = ref<Reports | null>(null);
 const loading = ref(false);
 const error = ref("");
+type HoursPeriod = { id: string; startsOn: string; endsOn: string; label?: string; hoursAllowed: number; hoursRolledIn: number; hoursUsed: number; hoursRemaining: number; hoursExpired: number; hoursOverage: number; hoursBilled: number; status: string; prorated?: boolean };
+type HoursReportRow = { agreement: { id: string; name: string; status: string; customerName?: string; currency: string }; periods: HoursPeriod[]; totals: Record<string, number>; adHocHours?: { used: number; billed: number; unbilled: number } };
+const hoursReport = ref<HoursReportRow[]>([]);
+const hoursLoading = ref(false);
+
 const tab = ref("pl");
 const TABS = [
   { id: "pl", label: "Profit & loss" },
@@ -36,6 +41,7 @@ const TABS = [
   { id: "aged", label: "Aged receivables" },
   { id: "outstanding", label: "Outstanding invoices" },
   { id: "expenses", label: "Expenses by category" },
+  { id: "hours", label: "Agreement hours" },
 ];
 
 async function load() {
@@ -93,7 +99,22 @@ const exportItems = computed<DropdownMenuItem[][]>(() =>
   })
 );
 
+async function loadHours() {
+  if (!activeCompanyId.value) return;
+  hoursLoading.value = true;
+  try {
+    const r = await capi<{ reports: HoursReportRow[] }>(`/agreements/hours-report?asOf=${range.to}`);
+    hoursReport.value = r.reports || [];
+  } catch (e) {
+    error.value = errMsg(e, "Failed to load the hours report");
+  } finally {
+    hoursLoading.value = false;
+  }
+}
+
 watch([activeCompanyId, useDataVersion()], load, { immediate: true });
+watch(tab, (id) => { if (id === "hours") loadHours(); });
+
 </script>
 
 <template>
@@ -233,6 +254,54 @@ watch([activeCompanyId, useDataVersion()], load, { immediate: true });
           </table>
         </UCard>
         <p v-if="!Object.keys(data.expensesByCategory).length" class="text-sm text-dimmed">No expenses in this range.</p>
+      </div>
+
+      <div v-else-if="tab === 'hours'" class="space-y-6">
+        <p v-if="hoursLoading" class="text-sm text-dimmed">Loading hours…</p>
+        <p v-else-if="!hoursReport.length" class="text-sm text-dimmed">No agreements yet.</p>
+        <div v-for="row in hoursReport" :key="row.agreement.id" class="space-y-2">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <NuxtLink :to="`/dashboard/agreements/${row.agreement.id}`" class="font-medium hover:underline">{{ row.agreement.name }}</NuxtLink>
+            <span class="text-sm text-dimmed">{{ row.agreement.customerName }} · {{ statusLabel(row.agreement.status) }}</span>
+          </div>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs uppercase tracking-wide text-dimmed">
+                <th class="py-1.5 pr-3">Period</th>
+                <th class="py-1.5 pr-3 text-right">Allowed</th>
+                <th class="py-1.5 pr-3 text-right">Rolled in</th>
+                <th class="py-1.5 pr-3 text-right">Used</th>
+                <th class="py-1.5 pr-3 text-right">Remaining</th>
+                <th class="py-1.5 pr-3 text-right">Expired</th>
+                <th class="py-1.5 pr-3 text-right">Overage</th>
+                <th class="py-1.5 text-right">Billed</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-default">
+              <tr v-for="p in row.periods" :key="p.id">
+                <td class="py-1.5 pr-3">{{ p.label || `${formatDate(p.startsOn)} – ${formatDate(p.endsOn)}` }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursAllowed }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursRolledIn }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursUsed }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursRemaining }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursExpired }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ p.hoursOverage }}</td>
+                <td class="py-1.5 text-right tabular-nums">{{ p.hoursBilled }}</td>
+              </tr>
+              <tr class="font-medium">
+                <td class="py-1.5 pr-3">Total</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursAllowed }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursRolledIn }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursUsed }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursRemaining }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursExpired }}</td>
+                <td class="py-1.5 pr-3 text-right tabular-nums">{{ row.totals.hoursOverage }}</td>
+                <td class="py-1.5 text-right tabular-nums">{{ row.totals.hoursBilled }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="row.adHocHours" class="text-xs text-dimmed">Ad hoc billable hours for this customer: {{ row.adHocHours.used }} used, {{ row.adHocHours.unbilled }} unbilled, {{ row.adHocHours.billed }} billed.</p>
+        </div>
       </div>
     </template>
   </div>
