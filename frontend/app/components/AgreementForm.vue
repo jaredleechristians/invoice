@@ -135,7 +135,8 @@ watch(
       <UFormField label="Start date" required>
         <UInput :model-value="form.startDate" type="date" class="w-full" :disabled="locked" @update:model-value="set('startDate', String($event || ''))" />
       </UFormField>
-      <UFormField label="End date" hint="Leave blank for an open-ended agreement">
+      <UFormField>
+        <template #label>End date <FieldHint text="Leave blank for an open-ended agreement" /></template>
         <UInput :model-value="form.endDate" type="date" class="w-full" @update:model-value="set('endDate', String($event || ''))" />
       </UFormField>
       <UFormField label="Period">
@@ -149,8 +150,7 @@ watch(
 
       <div class="sm:col-span-2 space-y-3">
         <div class="flex items-baseline justify-between gap-3">
-          <p class="text-sm font-medium">Agreement lines</p>
-          <p class="text-xs text-dimmed">Each line is billed every period as qty × rate</p>
+          <p class="text-sm font-medium">Agreement lines <FieldHint text="Each line is billed every period as qty × standard rate. The lines add up to the agreement value." /></p>
         </div>
         <div class="hidden sm:grid grid-cols-12 gap-2 px-1 text-xs uppercase tracking-wide text-dimmed">
           <span class="col-span-3">Billable service</span>
@@ -210,14 +210,18 @@ watch(
             </div>
           </div>
           <div class="flex flex-wrap items-start gap-x-6 gap-y-3">
-            <UCheckbox
-              :model-value="line.tracksTime"
-              label="Time entries count against this line"
-              @update:model-value="setTracksTime(index, Boolean($event))"
-            />
+            <div class="flex items-center gap-1">
+              <UCheckbox
+                :model-value="line.tracksTime"
+                label="Time entries count against this line"
+                @update:model-value="setTracksTime(index, Boolean($event))"
+              />
+              <FieldHint text="Time logged against this agreement uses this line's included qty; extra hours are billed as overage. Only one line can count time." />
+            </div>
           </div>
           <div v-if="line.tracksTime" class="grid gap-3 sm:grid-cols-2">
-            <UFormField label="Included qty" :hint="`Per period. Blank = qty (${line.qty || 0})`">
+            <UFormField>
+              <template #label>Included qty <FieldHint :text="`Hours included per period before overage. Leave blank to use the line qty (${line.qty || 0}).`" /></template>
               <UInput
                 :model-value="String(line.includedQty ?? '')"
                 type="number"
@@ -227,7 +231,8 @@ watch(
                 @update:model-value="patchLine(index, { includedQty: $event as number | string })"
               />
             </UFormField>
-            <UFormField label="Overage rate" hint="For usage beyond the included qty. Blank = standard rate.">
+            <UFormField>
+              <template #label>Overage rate <FieldHint text="Optional. Charged for hours beyond the included qty, on the next invoice. Falls back to the standard rate." /></template>
               <UInput
                 :model-value="String(line.overageRate ?? '')"
                 type="number"
@@ -250,8 +255,7 @@ watch(
 
       <div v-if="valueSummary" class="sm:col-span-2 rounded-lg border border-default px-4 py-3">
         <div class="flex items-baseline justify-between gap-3">
-          <p class="text-sm font-medium">Agreement value</p>
-          <p class="text-xs text-dimmed">excludes overage</p>
+          <p class="text-sm font-medium">Agreement value <FieldHint text="Excludes overage. With an end date, the total prorates partial first and last periods; open-ended agreements show 12 months." /></p>
         </div>
         <dl class="mt-2 space-y-1 text-sm">
           <div class="flex justify-between gap-3">
@@ -268,21 +272,25 @@ watch(
           </div>
         </dl>
       </div>
-      <UFormField label="Unused hours" class="sm:col-span-2" hint="Applies to the included qty on the line that time entries count against">
+      <UFormField class="sm:col-span-2">
+        <template #label>Unused hours <FieldHint text="Applies to the included qty on the line that time entries count against." /></template>
         <div class="space-y-3">
           <AppSelect
             :model-value="form.rolloverMode"
             :options="[{ label: 'Expire at the end of the period', value: 'expire' }, { label: 'Roll over to the next period', value: 'rollover' }]"
             @update:model-value="set('rolloverMode', ($event || 'expire') as 'expire' | 'rollover')"
           />
-          <UFormField v-if="form.rolloverMode === 'rollover'" label="Rollover cap (hours)" hint="Leave blank for no cap">
+          <UFormField v-if="form.rolloverMode === 'rollover'">
+            <template #label>Rollover cap (hours) <FieldHint text="Leave blank for no cap." /></template>
             <UInput :model-value="form.limitHours as number | string" type="number" min="0" step="0.25" class="w-full" @update:model-value="set('limitHours', $event as number | string)" />
           </UFormField>
         </div>
       </UFormField>
       <div class="sm:col-span-2">
-        <UCheckbox :model-value="form.autoPublish" label="Publish recurring invoices automatically" @update:model-value="set('autoPublish', Boolean($event))" />
-        <p class="mt-1 text-xs text-dimmed">When this is off, each period invoice is created as a draft for you to review.</p>
+        <div class="flex items-center gap-1">
+          <UCheckbox :model-value="form.autoPublish" label="Publish recurring invoices automatically" @update:model-value="set('autoPublish', Boolean($event))" />
+          <FieldHint text="When this is off, each period invoice is created as a draft for you to review." />
+        </div>
       </div>
     </div>
   </div>

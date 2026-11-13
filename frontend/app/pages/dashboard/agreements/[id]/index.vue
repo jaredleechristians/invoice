@@ -183,9 +183,8 @@ watch([id, useDataVersion()], load, { immediate: true });
           <div class="flex justify-between gap-3"><dt class="text-dimmed">{{ agreement.period === "quarter" ? "Quarterly fee" : "Monthly fee" }}</dt><dd class="tabular-nums">{{ formatCurrency(periodTotal, displayCurrency) }}</dd></div>
           <template v-if="valueSummary">
             <div v-if="agreement.period === 'quarter'" class="flex justify-between gap-3"><dt class="text-dimmed">Monthly value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.monthlyValue, displayCurrency) }}</dd></div>
-            <div v-if="valueSummary.openEnded" class="flex justify-between gap-3"><dt class="text-dimmed">Annual value (open-ended)</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd></div>
-            <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3"><dt class="text-dimmed">Total agreement value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd></div>
-            <p class="text-xs text-dimmed">excludes overage</p>
+            <div v-if="valueSummary.openEnded" class="flex justify-between gap-3"><dt class="text-dimmed">Annual value (open-ended) <FieldHint text="12 months of the monthly value. Excludes overage." /></dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd></div>
+            <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3"><dt class="text-dimmed">Total agreement value <FieldHint text="Sum of every period to the end date, with partial first and last periods prorated. Excludes overage." /></dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd></div>
           </template>
           <template v-if="trackedLine">
             <div class="flex justify-between gap-3"><dt class="text-dimmed">Included qty</dt><dd class="tabular-nums">{{ agreement.hours }}</dd></div>
