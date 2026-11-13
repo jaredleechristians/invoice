@@ -238,7 +238,19 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
 
   if (draft) {
     const computed = withComputed(doc);
-    await invoicesCol(db, companyId).doc(id).set({ ...doc, status: computed.status });
+    const timeEntries = require("./timeEntries");
+    if (timeEntries.entryIdsFromItems(doc.items).length) {
+      await timeEntries.runWithTx(async (tx, tdb) => {
+        const prepared = await timeEntries.prepareInvoiceTimeEntries(tx, tdb, companyId, id, {
+          items: doc.items,
+          customerId: doc.customerId,
+        });
+        tx.set(invoicesCol(tdb, companyId).doc(id), { ...doc, status: computed.status });
+        timeEntries.commitInvoiceTimeEntries(tx, id, prepared, { billed: false, customerId: doc.customerId });
+      });
+    } else {
+      await invoicesCol(db, companyId).doc(id).set({ ...doc, status: computed.status });
+    }
   } else {
     assertFinalizable(doc, company);
     doc.issuer = doc.payload ? null : issuerSnapshot(company, currency);
@@ -262,10 +274,16 @@ async function createInvoice(companyId, uid, email, role, body = {}) {
         postDate: doc.issueDate,
         ctx,
       });
+      const timeEntries = require("./timeEntries");
+      const preparedTime = await timeEntries.prepareInvoiceTimeEntries(tx, db, companyId, id, {
+        items: doc.items,
+        customerId: doc.customerId,
+      });
       if (commitNumber) commitNumber(tx);
       const computed = withComputed(doc);
       tx.set(invoicesCol(db, companyId).doc(id), { ...doc, status: computed.status, ledger: posting.ledger });
       posting.commit(tx);
+      timeEntries.commitInvoiceTimeEntries(tx, id, preparedTime, { billed: true, customerId: doc.customerId });
       doc.ledger = posting.ledger;
     });
     await ensureGoLiveDate(companyId);
@@ -358,6 +376,17 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
     await invoicesCol(db, companyId)
       .doc(invoiceId)
       .set({ ...patch, status: computed.status }, { merge: true });
+    const timeEntries = require("./timeEntries");
+    if (timeEntries.entryIdsFromItems(merged.items).length || timeEntries.entryIdsFromItems(existing.items).length) {
+      await timeEntries.runWithTx((tx, tdb) =>
+        timeEntries.syncInvoiceTimeEntries(tx, tdb, companyId, invoiceId, {
+          items: merged.items,
+          previousItems: existing.items,
+          billed: !merged.draft,
+          customerId: merged.customerId,
+        })
+      );
+    }
   } else {
     const ctx = await loadLedgerCtx(companyId);
     await db.runTransaction(async (tx) => {
@@ -384,10 +413,17 @@ async function updateInvoice(companyId, uid, email, role, invoiceId, body = {}) 
         postDate: merged.issueDate,
         ctx,
       });
+      const timeEntries = require("./timeEntries");
+      const preparedTime = await timeEntries.prepareInvoiceTimeEntries(tx, db, companyId, invoiceId, {
+        items: merged.items,
+        previousItems: existing.items,
+        customerId: merged.customerId,
+      });
       const computed = withComputed(merged);
       if (commitNumber) commitNumber(tx);
       tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...patch, status: computed.status, ledger: posting.ledger }, { merge: true });
       posting.commit(tx);
+      timeEntries.commitInvoiceTimeEntries(tx, invoiceId, preparedTime, { billed: true, customerId: merged.customerId });
       merged.ledger = posting.ledger;
     });
     await ensureGoLiveDate(companyId);
@@ -442,8 +478,11 @@ async function voidInvoice(companyId, uid, email, role, invoiceId, { reason = ""
       reverseDate: voidDate,
       ctx,
     });
+    const timeEntries = require("./timeEntries");
+    const preparedTime = await timeEntries.prepareDetachInvoiceTimeEntries(tx, db, companyId, invoiceId, { items: existing.items });
     tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...patch, ledger: posting.ledger }, { merge: true });
     posting.commit(tx);
+    timeEntries.commitDetachInvoiceTimeEntries(tx, preparedTime);
   });
   await logAudit({ companyId, uid, email, action: "invoice.void", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, reason: patch.voidReason } });
   return withComputed({ ...existing, ...patch });
@@ -461,7 +500,11 @@ async function duplicateInvoice(companyId, uid, email, role, invoiceId) {
     currency: src.currency || "ZAR",
     issueDate,
     dueDate: addDaysIso(issueDate, company.paymentTermsDays ?? 30),
-    items: src.items || [],
+    items: (src.items || []).map((i) => {
+      const { timeEntryId, ...rest } = i;
+      void timeEntryId;
+      return rest;
+    }),
     notes: src.notes || "",
     footer: src.footer || "",
     reference: src.reference || "",
@@ -495,11 +538,23 @@ async function deleteInvoice(companyId, uid, email, role, invoiceId) {
         reverseDate: existing.issueDate,
         ctx,
       });
+      const timeEntries = require("./timeEntries");
+      const preparedTime = await timeEntries.prepareDetachInvoiceTimeEntries(tx, db, companyId, invoiceId, { items: existing.items });
       tx.set(invoicesCol(db, companyId).doc(invoiceId), { ...deletion(uid), ledger: posting.ledger }, { merge: true });
       posting.commit(tx);
+      timeEntries.commitDetachInvoiceTimeEntries(tx, preparedTime);
     });
   } else {
-    await invoicesCol(db, companyId).doc(invoiceId).set(deletion(uid), { merge: true });
+    const timeEntries = require("./timeEntries");
+    if (timeEntries.entryIdsFromItems(existing.items).length) {
+      await timeEntries.runWithTx(async (tx, tdb) => {
+        const preparedTime = await timeEntries.prepareDetachInvoiceTimeEntries(tx, tdb, companyId, invoiceId, { items: existing.items });
+        tx.set(invoicesCol(tdb, companyId).doc(invoiceId), deletion(uid), { merge: true });
+        timeEntries.commitDetachInvoiceTimeEntries(tx, preparedTime);
+      });
+    } else {
+      await invoicesCol(db, companyId).doc(invoiceId).set(deletion(uid), { merge: true });
+    }
   }
   await logAudit({ companyId, uid, email, action: "invoice.delete", payload: { invoiceId, invoiceNumber: existing.invoiceNumber, draft: existing.draft } });
 }

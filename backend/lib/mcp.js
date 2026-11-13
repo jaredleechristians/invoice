@@ -26,6 +26,7 @@ const ledgerJournals = require("./ledger/journals");
 const { buildStatement } = require("./statements");
 const { listReceivables } = require("./receivables");
 const creditNotes = require("./creditNotes");
+const timeEntries = require("./timeEntries");
 const { canWriteRecords } = require("./permissions");
 
 const pkg = require("../package.json");
@@ -186,6 +187,19 @@ function buildMcpServer(ctx) {
     return pick(r, ["range", "profitAndLoss", "incomeByMonth", "expensesByCategory", "incomeByCustomer", "invoicedByMonth"]);
   });
 
+  read("list_time_entries", "Time entries, newest first. Use unbilled: true for ad hoc hours that are not yet on an invoice.", {
+    customerId: ID.optional(), billable: z.boolean().optional(), unbilled: z.boolean().optional(), billed: z.boolean().optional(),
+    from: ISO.optional(), to: ISO.optional(), q: z.string().max(100).optional(), ...PAGE,
+  }, async (a) => {
+    const rows = await timeEntries.listTimeEntries(ctx.companyId, a);
+    return page(rows.map((e) => pick(e, ["id", "date", "minutes", "hours", "description", "customerId", "customerName", "personName", "billable", "rate", "status", "invoiceId", "billedAt", "source"])), a);
+  });
+
+  read("get_time_entry", "One time entry.", { timeEntryId: ID }, async (a) => {
+    const e = await timeEntries.requireTimeEntry(ctx.companyId, a.timeEntryId);
+    return pick(e, ["id", "date", "minutes", "hours", "description", "notes", "customerId", "customerName", "personUid", "personName", "billable", "rate", "currency", "status", "invoiceId", "billedAt", "source"]);
+  });
+
   read("list_expenses", "Expenses, newest first.", {
     from: ISO.optional(), to: ISO.optional(), categoryId: ID.optional(), currency: CURRENCY.optional(), q: z.string().max(100).optional(), ...PAGE,
   }, async (a) => {
@@ -226,6 +240,13 @@ function buildMcpServer(ctx) {
     address: z.string().max(1000).optional(), taxNumber: z.string().max(50).optional(), currency: CURRENCY.optional(), notes: z.string().max(2000).optional(),
     paymentTermsDays: z.number().int().min(0).max(365).optional(), creditLimit: z.number().min(0).optional(),
   }, async (a) => pick(await customers.createCustomer(...who, a), ["id", "name", "email", "currency", "paymentTermsDays", "creditLimit"]));
+
+  write("create_time_entry", "Log internal or ad hoc billable time. This does not invoice the time. Internal time is non-billable unless billable is true.", {
+    date: ISO, hours: z.number().positive().optional(), minutes: z.number().int().positive().optional(),
+    description: z.string().min(1).max(500), notes: z.string().max(2000).optional(),
+    customerId: ID.optional(), personName: z.string().max(200).optional(),
+    billable: z.boolean().optional(), rate: z.number().min(0).optional(), currency: CURRENCY.optional(),
+  }, async (a) => pick(await timeEntries.createTimeEntry(...who, a), ["id", "date", "minutes", "hours", "description", "customerId", "customerName", "billable", "rate", "status", "source"]));
 
   write("create_draft_credit_note", "Create a DRAFT credit note linked to one published invoice. It is not published or posted until you do that in the app.", {
     invoiceId: ID, items: z.array(ITEM).min(1).max(100).optional(), issueDate: ISO.optional(), reason: z.string().max(500).optional(), notes: z.string().max(2000).optional(),

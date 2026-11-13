@@ -16,6 +16,7 @@ const KINDS = {
   expenseCategory: "expenseCategories",
   bankAccount: "bankAccounts",
   creditNote: "creditNotes",
+  timeEntry: "timeEntries",
 };
 
 async function restoreRecord(companyId, uid, email, role, kind, id) {
@@ -75,8 +76,14 @@ async function restoreRecord(companyId, uid, email, role, kind, id) {
         postDate: data.issueDate,
         ctx,
       });
+      const timeEntries = require("./timeEntries");
+      const preparedTime = await timeEntries.prepareInvoiceTimeEntries(tx, db, companyId, snap.id, {
+        items: data.items,
+        customerId: data.customerId,
+      });
       tx.set(ref, { ...patch, ledger: posting.ledger }, { merge: true });
       posting.commit(tx);
+      timeEntries.commitInvoiceTimeEntries(tx, snap.id, preparedTime, { billed: true, customerId: data.customerId });
     });
   } else if (kind === "creditNote") {
     const creditNotes = require("./creditNotes");
@@ -126,6 +133,18 @@ async function restoreRecord(companyId, uid, email, role, kind, id) {
     });
   } else {
     await ref.set(patch, { merge: true });
+    if (kind === "invoice") {
+      const timeEntries = require("./timeEntries");
+      if (timeEntries.entryIdsFromItems(data.items).length) {
+        await timeEntries.runWithTx((tx, tdb) =>
+          timeEntries.syncInvoiceTimeEntries(tx, tdb, companyId, snap.id, {
+            items: data.items,
+            billed: !data.draft && !data.voided,
+            customerId: data.customerId,
+          })
+        );
+      }
+    }
   }
   if (kind === "bankAccount") await require("./ledger/accounts").ensureChart(companyId, { linkBanks: true });
   await logAudit({ companyId, uid, email, action: `${kind}.restore`, payload: { id: snap.id } });

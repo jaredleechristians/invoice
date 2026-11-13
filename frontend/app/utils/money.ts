@@ -71,6 +71,10 @@ export const STATUS_COLORS: Record<string, "success" | "error" | "warning" | "ne
   converted: "primary",
   expired: "warning",
   issued: "success",
+  billed: "success",
+  unbilled: "info",
+  reserved: "warning",
+  internal: "neutral",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -88,6 +92,10 @@ const STATUS_LABELS: Record<string, string> = {
   converted: "Converted",
   expired: "Expired",
   issued: "Issued",
+  billed: "Billed",
+  unbilled: "Unbilled",
+  reserved: "On a draft invoice",
+  internal: "Internal",
 };
 
 /** Human label for an invoice/quote status, e.g. "partially_paid" → "Partially paid". */

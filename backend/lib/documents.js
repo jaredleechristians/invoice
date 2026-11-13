@@ -20,6 +20,7 @@ function normalizeLines(items) {
       qty,
       unitPrice,
       taxable: item?.taxable !== false,
+      timeEntryId: String(item?.timeEntryId || "").trim(),
     };
   });
 }
