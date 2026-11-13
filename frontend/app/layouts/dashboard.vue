@@ -15,6 +15,7 @@ const NAV = [
   { to: "/dashboard", label: "Home", icon: "i-lucide-house", exact: true },
   { to: "/dashboard/invoices", label: "Invoices", icon: "i-lucide-file-text" },
   { to: "/dashboard/credit-notes", label: "Credit notes", icon: "i-lucide-file-minus-2" },
+  { to: "/dashboard/time", label: "Time", icon: "i-lucide-clock" },
   { to: "/dashboard/quotes", label: "Quotes", icon: "i-lucide-file-pen-line" },
   { to: "/dashboard/customers", label: "Customers", icon: "i-lucide-users" },
   { to: "/dashboard/products", label: "Products", icon: "i-lucide-package" },

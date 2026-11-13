@@ -25,6 +25,7 @@ const expenses = require("./expenses");
 const invoices = require("./invoices");
 const quotes = require("./quotes");
 const payments = require("./payments");
+const timeEntries = require("./timeEntries");
 
 const ACTION_TTL_MS = 30 * 60 * 1000;
 
@@ -69,6 +70,12 @@ const WRITE_TOOL_DEFS = [
     amount: num("Amount paid"), currency: CURRENCY, date: ISO("Date paid"), vendor: str("Who was paid"),
     category: str("Expense category name (e.g. Fuel, Software)"), reference: str("Reference"), notes: str("Notes"),
   }, ["amount", "currency", "date"]),
+  fn("propose_create_time_entry", "Propose logging internal or ad hoc billable time. Does not invoice it.", {
+    date: ISO("Date of the work"), hours: num("Hours worked (e.g. 1.5)"), minutes: num("Minutes worked, if not using hours"),
+    description: str("What was done"), customer: str("Customer name or id, if this time is for a customer"),
+    billable: { type: "boolean", description: "True only for ad hoc billable hours that can later be invoiced" },
+    rate: num("Optional hourly rate for billable time"), personName: str("Who did the work"), notes: str("Internal notes"),
+  }, ["date", "description"]),
   fn("propose_create_draft_invoice", "Propose a DRAFT invoice. Never publishes; the user publishes it in the app.", {
     customer: str("Existing customer name or id"), currency: CURRENCY, items: LINES,
     issueDate: ISO("Issue date"), dueDate: ISO("Due date"), reference: str("Reference / PO"), notes: str("Notes shown on the invoice"),
@@ -275,6 +282,48 @@ async function prepareAction(companyId, tool, args = {}, { hints } = {}) {
         ],
       };
     }
+    case "propose_create_time_entry": {
+      const d = requireDate(args.date, "date", { required: true });
+      if (d.error) return d.error;
+      const description = String(args.description || "").trim();
+      if (!description) return ask("What did you work on?", { missing: ["description"] });
+      if ((args.hours === undefined || args.hours === null || args.hours === "") && (args.minutes === undefined || args.minutes === null || args.minutes === "")) {
+        return ask("How many hours (or minutes) should I log?", { missing: ["hours"] });
+      }
+      let customerId = "";
+      let customerName = "";
+      if (args.customer) {
+        const r = resolveOne(await customers.listCustomers(companyId), args.customer, { label: "customer", nameOf: (c) => c.name, extraKeys: ["email"] });
+        if (r.error) return r.error;
+        customerId = r.row.id;
+        customerName = r.row.name;
+      }
+      const billable = Boolean(args.billable);
+      const input = {
+        date: d.date,
+        description,
+        billable,
+        source: "assistant",
+        ...(args.hours !== undefined && args.hours !== null && args.hours !== "" ? { hours: Number(args.hours) } : {}),
+        ...(args.minutes !== undefined && args.minutes !== null && args.minutes !== "" ? { minutes: Number(args.minutes) } : {}),
+        ...(customerId ? { customerId } : {}),
+        ...(args.rate !== undefined && args.rate !== null && args.rate !== "" ? { rate: Number(args.rate) } : {}),
+        ...pick(args, ["personName", "notes"]),
+      };
+      const duration = input.hours != null ? `${input.hours}h` : `${input.minutes} min`;
+      return {
+        tool, input,
+        title: `Log ${duration} ${billable ? "billable " : ""}time${customerName ? ` for ${customerName}` : ""} on ${fmtDate(d.date)}`,
+        details: [
+          { label: "Date", value: fmtDate(d.date) },
+          { label: "Duration", value: duration },
+          { label: "Work", value: description },
+          { label: "Billable", value: billable ? "Yes (ad hoc, not invoiced yet)" : "No (internal)" },
+          ...(customerName ? [{ label: "Customer", value: customerName }] : []),
+          ...(input.personName ? [{ label: "Person", value: input.personName }] : []),
+        ],
+      };
+    }
     case "propose_create_draft_invoice":
     case "propose_create_draft_quote": {
       const isInvoice = tool === "propose_create_draft_invoice";
@@ -466,6 +515,10 @@ async function executeAction(companyId, uid, email, role, tool, input) {
     case "propose_create_expense": {
       const e = await expenses.createExpense(...who, input);
       return { kind: "expense", id: e.id, label: formatMoney(e.amount, e.currency), link: "/dashboard/expenses" };
+    }
+    case "propose_create_time_entry": {
+      const e = await timeEntries.createTimeEntry(...who, { ...input, source: "assistant" });
+      return { kind: "timeEntry", id: e.id, label: `${e.hours}h ${e.description}`, link: "/dashboard/time" };
     }
     case "propose_create_draft_invoice": {
       // Drafts only: never pass finalize.

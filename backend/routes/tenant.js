@@ -15,6 +15,7 @@ const reports = require("../lib/reports");
 const { buildStatement } = require("../lib/statements");
 const { listReceivables } = require("../lib/receivables");
 const creditNotes = require("../lib/creditNotes");
+const timeEntries = require("../lib/timeEntries");
 const { importLocalInvoice } = require("../lib/importLocal");
 const { renderStatementHtml } = require("../lib/statementHtml");
 const { renderDocumentHtml } = require("../lib/documentHtml");
@@ -154,6 +155,27 @@ company.get("/credit-notes/:creditNoteId/pdf", h(async (req, res) => {
   if (req.query.format === "html") return res.type("html").send(html);
   await sendPdf(res, html, `${safeName(doc.creditNoteNumber, "draft-credit-note")}.pdf`);
 }));
+
+
+// ---------- time entries ----------
+
+company.get("/time-entries", h(async (req) => ({
+  timeEntries: await timeEntries.listTimeEntries(req.companyId, {
+    q: req.query.q,
+    customerId: req.query.customerId,
+    billable: req.query.billable,
+    unbilled: req.query.unbilled,
+    billed: req.query.billed,
+    from: req.query.from,
+    to: req.query.to,
+    invoiceId: req.query.invoiceId,
+  }),
+})));
+company.post("/time-entries", h((req) => timeEntries.createTimeEntry(...actor(req), req.body || {}), 201));
+company.post("/time-entries/invoice", h((req) => timeEntries.createInvoiceFromTime(...actor(req), req.body || {}), 201));
+company.get("/time-entries/:entryId", h((req) => timeEntries.requireTimeEntry(req.companyId, req.params.entryId)));
+company.patch("/time-entries/:entryId", h((req) => timeEntries.updateTimeEntry(...actor(req), req.params.entryId, req.body || {})));
+company.delete("/time-entries/:entryId", h((req) => timeEntries.deleteTimeEntry(...actor(req), req.params.entryId)));
 
 // ---------- products ----------
 
