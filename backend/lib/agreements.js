@@ -19,6 +19,7 @@ const {
   requireIso,
   requirePeriodType,
 } = require("./agreementPeriods");
+const { linesOf, linesFromBody, derivedFields, trackedLine, overageRateOf, prorateLines, roundQty } = require("./agreementLines");
 
 const STATUSES = new Set(["draft", "active", "paused", "ended"]);
 const SYSTEM_ACTOR = ["system", "system@invoice", "owner"];
@@ -64,54 +65,22 @@ function normalizeAgreement(body = {}, existing = {}) {
   if (!name) throw httpError(400, "Agreement name is required");
   const customerId = String(body.customerId !== undefined ? body.customerId : existing.customerId || "").trim();
   if (!customerId) throw httpError(400, "Pick a customer");
-  const serviceId = String(body.serviceId !== undefined ? body.serviceId : existing.serviceId || "").trim();
-  if (!serviceId) throw httpError(400, "Pick a billable service");
   const startDate = requireIso(body.startDate !== undefined ? body.startDate : existing.startDate, "startDate");
   let endDate = "";
   if (body.endDate !== undefined) endDate = body.endDate ? requireIso(body.endDate, "endDate") : "";
   else if (existing.endDate) endDate = existing.endDate;
   if (endDate && endDate < startDate) throw httpError(400, "End date cannot be before the start date");
   const period = requirePeriodType(body.period !== undefined ? body.period : existing.period || "month");
-  const hoursRaw = body.hours !== undefined ? body.hours : existing.hours;
-  if (hoursRaw === undefined || hoursRaw === null || hoursRaw === "") throw httpError(400, "Included hours are required");
-  const hours = roundHours(hoursRaw);
-  if (!Number.isFinite(hours) || hours < 0) throw httpError(400, "Included hours cannot be negative");
-  const feeRaw = body.fee !== undefined ? body.fee : existing.fee;
-  if (feeRaw === undefined || feeRaw === null || feeRaw === "") throw httpError(400, "Period fee is required");
-  const fee = roundMoney(feeRaw);
-  if (!Number.isFinite(fee) || fee < 0) throw httpError(400, "Period fee cannot be negative");
-  let rate = existing.rate ?? null;
-  if (body.rate !== undefined) {
-    if (body.rate === null || body.rate === "") rate = null;
-    else {
-      rate = roundMoney(body.rate);
-      if (!Number.isFinite(rate) || rate < 0) throw httpError(400, "Standard rate cannot be negative");
-    }
-  }
-  if (rate == null) {
-    rate = hours > 0 ? roundMoney(fee / hours) : 0;
-  }
-  let overageRate = existing.overageRate ?? null;
-  if (body.overageRate !== undefined) {
-    if (body.overageRate === null || body.overageRate === "") overageRate = null;
-    else {
-      overageRate = roundMoney(body.overageRate);
-      if (!Number.isFinite(overageRate) || overageRate < 0) throw httpError(400, "Overage rate cannot be negative");
-    }
-  }
+  const lines = linesFromBody(body, existing);
   const currency = normalizeCurrency(body.currency !== undefined ? body.currency : existing.currency, "");
   const autoPublish = body.autoPublish !== undefined ? Boolean(body.autoPublish) : Boolean(existing.autoPublish);
   return {
     name,
     customerId,
-    serviceId,
+    lines,
     startDate,
     endDate,
     period,
-    hours,
-    fee,
-    rate,
-    overageRate,
     currency,
     rolloverPolicy: normalizeRollover(body, existing),
     autoPublish,
@@ -119,8 +88,23 @@ function normalizeAgreement(body = {}, existing = {}) {
 }
 
 function effectiveOverageRate(agreement) {
-  const rate = agreement.overageRate != null && agreement.overageRate !== "" ? Number(agreement.overageRate) : Number(agreement.rate);
-  return roundMoney(rate || 0);
+  return overageRateOf(trackedLine(linesOf(agreement)));
+}
+
+/**
+ * Check every line's service, fill blank descriptions and rates from the service,
+ * then add the agreement-level fields derived from the lines.
+ */
+async function resolveLines(companyId, data) {
+  const services = {};
+  for (const line of data.lines) {
+    if (!services[line.serviceId]) services[line.serviceId] = await loadService(companyId, line.serviceId);
+    const service = services[line.serviceId];
+    if (!line.description) line.description = String(service.name || "").slice(0, 500);
+    if (line.rate == null) line.rate = roundMoney(service.unitPrice || 0);
+  }
+  Object.assign(data, derivedFields(data.lines));
+  return data;
 }
 
 async function customerNameFor(companyId, customerId) {
@@ -137,8 +121,10 @@ async function loadService(companyId, serviceId) {
 }
 
 function withAgreementComputed(row) {
+  const lines = linesOf(row);
   return {
     ...row,
+    ...(lines.length ? { lines, ...derivedFields(lines) } : {}),
     endDate: row.endDate || "",
     autoPublish: Boolean(row.autoPublish),
     rolloverPolicy: row.rolloverPolicy || emptyRollover(),
@@ -178,7 +164,7 @@ async function createAgreement(companyId, uid, email, role, body = {}) {
   assertCan(canWriteRecords, role);
   const data = normalizeAgreement(body);
   const { customerName, customer } = await customerNameFor(companyId, data.customerId);
-  await loadService(companyId, data.serviceId);
+  await resolveLines(companyId, data);
   if (!data.currency) data.currency = customer.currency || (await loadCompanyCurrency(companyId));
   const id = randomId();
   const now = new Date().toISOString();
@@ -229,7 +215,7 @@ async function updateAgreement(companyId, uid, email, role, agreementId, body = 
   const { customerName, customer } = customerChanged
     ? await customerNameFor(companyId, data.customerId)
     : { customerName: existing.customerName, customer: null };
-  if (data.serviceId !== existing.serviceId) await loadService(companyId, data.serviceId);
+  await resolveLines(companyId, data);
   if (!data.currency) data.currency = existing.currency || customer?.currency || (await loadCompanyCurrency(companyId));
   const patch = { ...data, customerName, updatedAt: new Date().toISOString() };
   await agreementsCol(getDb(), companyId).doc(agreementId).set(patch, { merge: true });
@@ -408,29 +394,60 @@ async function closePeriod(companyId, agreement, period, hoursUsed) {
   return { ...period, ...patch };
 }
 
-function feeLine(agreement, service, period) {
-  if (roundMoney(period.fee) <= 0) return null;
-  return {
-    description: `${service.name || agreement.name} — ${periodLabel(period.startsOn, period.endsOn)}`,
-    note: period.prorated ? `Prorated ${period.daysInPeriod} of ${period.daysInFullPeriod} days` : "",
-    qty: 1,
-    unitPrice: period.fee,
-    taxable: service.taxable !== false,
-    productId: service.id,
-  };
+function fmtQty(n) {
+  return String(roundQty(n));
 }
 
-function overageLine(agreement, service, previous, math) {
+function fmtRate(n) {
+  return roundMoney(n).toFixed(2);
+}
+
+/** One invoice line per agreement line; prorated lines bill their share of the period fee. */
+function feeLines(agreement, services, period) {
+  if (roundMoney(period.fee) <= 0) return [];
+  const lines = linesOf(agreement);
+  const fraction = period.prorated && period.daysInFullPeriod ? period.daysInPeriod / period.daysInFullPeriod : 1;
+  const label = periodLabel(period.startsOn, period.endsOn);
+  return prorateLines(lines, period.fee, fraction)
+    .filter(({ amount }) => amount > 0)
+    .map(({ line, amount }) => {
+      const service = services[line.serviceId] || {};
+      const base = {
+        description: `${line.description || service.name || agreement.name} — ${label}`,
+        taxable: service.taxable !== false,
+        productId: line.serviceId,
+      };
+      if (!period.prorated) {
+        return { ...base, note: "", qty: line.qty, unitPrice: line.rate };
+      }
+      const qtyNote = Number(line.qty) === 1 ? "" : ` of ${fmtQty(line.qty)} × ${fmtRate(line.rate)}`;
+      return { ...base, note: `Prorated ${period.daysInPeriod} of ${period.daysInFullPeriod} days${qtyNote}`, qty: 1, unitPrice: amount };
+    });
+}
+
+/** Overage on the time-tracked line: usage beyond included qty (after rollover). */
+function overageLine(agreement, services, previous, math) {
   if (!math.hoursOverage) return null;
-  const rate = effectiveOverageRate(agreement);
+  const line = trackedLine(linesOf(agreement));
+  if (!line) return null;
+  const service = services[line.serviceId] || {};
+  const rate = overageRateOf(line);
   return {
-    description: `Overage hours — ${periodLabel(previous.startsOn, previous.endsOn)}`,
-    note: `${math.hoursOverage} hours at ${rate}`,
+    description: `Overage: ${line.description || service.name || "hours"} — ${periodLabel(previous.startsOn, previous.endsOn)}`,
+    note: `${math.hoursOverage} beyond included qty at ${fmtRate(rate)}`,
     qty: math.hoursOverage,
     unitPrice: rate,
     taxable: service.taxable !== false,
-    productId: service.id,
+    productId: line.serviceId,
   };
+}
+
+async function loadLineServices(companyId, agreement) {
+  const services = {};
+  for (const line of linesOf(agreement)) {
+    if (!services[line.serviceId]) services[line.serviceId] = await loadService(companyId, line.serviceId);
+  }
+  return services;
 }
 
 async function createPeriodInvoice(companyId, uid, email, role, agreement, period, { items, asOf, overageForPeriodId } = {}) {
@@ -458,7 +475,7 @@ async function createPeriodInvoice(companyId, uid, email, role, agreement, perio
 async function generateForAgreement(companyId, uid, email, role, agreement, { asOf } = {}) {
   if (agreement.status === "draft") return { invoices: [], periods: [] };
   const asOfDate = toIsoDate(asOf) || todayIsoInZone();
-  const service = await loadService(companyId, agreement.serviceId);
+  const services = await loadLineServices(companyId, agreement);
   let periods = await ensurePeriods(companyId, agreement, asOfDate);
   const created = [];
 
@@ -492,7 +509,7 @@ async function generateForAgreement(companyId, uid, email, role, agreement, { as
 
     if (agreement.status !== "active" && agreement.status !== "ended") continue;
 
-    const items = [feeLine(agreement, service, period), prevMath ? overageLine(agreement, service, closedPrev, prevMath) : null];
+    const items = [...feeLines(agreement, services, period), prevMath ? overageLine(agreement, services, closedPrev, prevMath) : null];
     const inv = await createPeriodInvoice(companyId, uid, email, role, agreement, period, { items, asOf: asOfDate });
     const now = new Date().toISOString();
     const patch = { invoiced: true, recurringInvoiceId: inv ? inv.id : "", updatedAt: now };
@@ -518,7 +535,7 @@ async function generateForAgreement(companyId, uid, email, role, agreement, { as
     const hasLater = periods.some((p) => p.startsOn > last.startsOn);
     if (!hasLater && closed.hoursOverage > 0) {
       const inv = await createPeriodInvoice(companyId, uid, email, role, agreement, closed, {
-        items: [overageLine(agreement, service, closed, closed)],
+        items: [overageLine(agreement, services, closed, closed)],
         asOf: asOfDate,
         overageForPeriodId: closed.id,
       });
@@ -623,6 +640,7 @@ async function hoursReport(companyId, { agreementId, customerId, asOf } = {}) {
         period: agreement.period,
         hours: agreement.hours,
         fee: agreement.fee,
+        lines: agreement.lines,
         currency: agreement.currency,
         startDate: agreement.startDate,
         endDate: agreement.endDate,
@@ -736,5 +754,6 @@ module.exports = {
   startRecurringInvoiceScheduler,
   ensurePeriods,
   effectiveOverageRate,
+  feeLines,
   STATUSES,
 };

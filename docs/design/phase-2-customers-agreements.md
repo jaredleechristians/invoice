@@ -101,7 +101,7 @@ Ad hoc billable hours are time entries with `billable: true` and no `agreementId
 
 ### 3.4 Agreements — `companies/{companyId}/agreements/{id}` (1.9.0)
 
-The retainer feature. Linked to a recurring billable service (a product/service).
+The retainer feature. Linked to a recurring billable service (a product/service). 1.10.0 replaces the single service and fee with agreement lines (3.4.1); the 1.9 fields below are kept as derived values.
 
 ```
 customerId
@@ -118,6 +118,31 @@ serviceId                         // product/service used on the recurring invoi
 autoPublish: false                // per agreement: recurring invoices are drafts unless this is true
 createdAt, updatedAt, createdBy, deletedAt
 ```
+
+### 3.4.1 Agreement lines (1.10.0)
+
+From 1.10.0 an agreement is made up of one or more **lines** instead of a single service and period fee. The lines make up the agreement value.
+
+```
+lines: [{
+  id
+  serviceId                       // billable service (required)
+  description                     // defaults to the service name
+  qty                             // 0..n, decimals allowed
+  rate                            // unit price ("Standard rate"), defaults to the service price
+  includedQty: number | null      // time-tracked line only: hours included per period; null = qty
+  overageRate: number | null      // time-tracked line only: rate beyond the included qty; null = rate
+  tracksTime: boolean             // time entries on the agreement count against this line (at most one line)
+}]
+```
+
+Period value = Σ round(qty × rate). Time entries are linked to an agreement, not a line, so at most one line tracks time. A create/update without any `tracksTime` key makes the first line the time-tracked line. Lines that do not track time ignore `includedQty` / `overageRate` (stored as null). If no line tracks time, logged time still shows in the hours report but is not billed as overage.
+
+The server also stores fields derived from the lines so periods, the hours report, time entries and older API readers keep working: `fee` (period value), `hours` (included qty of the time-tracked line, or 0), `rate` / `overageRate` (time-tracked line), `serviceId` (time-tracked line, or the first line).
+
+**Backward compatibility.** A stored pre-1.10 agreement (no `lines`) reads as one time-tracked line: `qty 1 × fee`, `includedQty = hours`, `overageRate = overageRate ?? rate` (so overage still falls back to the old standard rate). The API, MCP `create_agreement` and the assistant still accept the legacy payload (`serviceId`, `hours`, `fee`, `rate`, `overageRate`) and convert it to that one line. Updating without `lines` or legacy fields keeps the existing lines.
+
+**Recurring invoices.** One invoice line per agreement line with a non-zero total (`qty × rate`, product = the line's service, taxable from the service). For a prorated (partial) period, each line becomes `qty 1 × round(lineTotal × fraction)` with a "Prorated n of m days" note; any rounding cent goes on the last line so the lines add up to the period's prorated `fee`. Overage for the previous period is one line on the time-tracked line's service at its overage rate (or its rate). Double-billing protection, ledger posting, draft vs auto-publish and the credit-limit warning are unchanged.
 
 ### 3.5 Agreement periods — `companies/{companyId}/agreementPeriods/{id}` (1.9.0)
 
@@ -275,7 +300,7 @@ Hours rolled in from the previous period are added in full; they are not prorate
 - Reports aged receivables and outstanding invoices subtract credits and can show the limit.
 - MCP: read `list_credit_notes` / `get_credit_note`; write keys can `create_draft_credit_note` (never auto-publish). `get_receivables` stays and includes credits.
 
-1.8.0 adds time entries (CRUD, filters, invoice-from-unbilled-hours) and MCP `list_time_entries` / `get_time_entry` / `create_time_entry`. The assistant proposes time entries; it does not invoice them. 1.9.0 adds agreement and recurring resources on the same pattern (draft-safe assistant tools, API keys follow role permissions). Reminder tools wait for 1.10.0.
+1.8.0 adds time entries (CRUD, filters, invoice-from-unbilled-hours) and MCP `list_time_entries` / `get_time_entry` / `create_time_entry`. The assistant proposes time entries; it does not invoice them. 1.9.0 adds agreement and recurring resources on the same pattern (draft-safe assistant tools, API keys follow role permissions). 1.10.0 replaces the single service and period fee with agreement lines (API, MCP `create_agreement` and the assistant accept `lines`; the legacy payload is still accepted). Payment reminders move to the release after 1.10.0.
 
 ## 8. Testing
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatCurrency, formatDate, STATUS_COLORS, statusLabel } from "~/utils/money";
-import { agreementValue } from "~/utils/agreementValue";
+import { agreementFormLines, agreementValue, agreementLineTotal, linesValue, type AgreementLineInput } from "~/utils/agreementValue";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -34,6 +34,7 @@ type Agreement = {
   customerId: string;
   customerName?: string;
   serviceId: string;
+  lines?: AgreementLineInput[];
   startDate: string;
   endDate?: string;
   period: string;
@@ -69,10 +70,14 @@ const displayCurrency = computed(() =>
   agreement.value?.currency || company.value?.baseCurrency || company.value?.defaultCurrency || "ZAR"
 );
 
+const lines = computed(() => (agreement.value ? agreementFormLines(agreement.value) : []));
+const periodTotal = computed(() => linesValue(lines.value));
+const trackedLine = computed(() => lines.value.find((l) => l.tracksTime) || null);
+
 const valueSummary = computed(() => {
   const a = agreement.value;
   if (!a) return null;
-  return agreementValue({ fee: a.fee, startDate: a.startDate, endDate: a.endDate, period: a.period });
+  return agreementValue({ lines: lines.value, startDate: a.startDate, endDate: a.endDate, period: a.period });
 });
 
 async function load() {
@@ -125,7 +130,7 @@ watch([id, useDataVersion()], load, { immediate: true });
 
 <template>
   <div class="space-y-6">
-    <PageHeader :title="agreement?.name || 'Agreement'" info="Hours used come from time logged against this agreement. The period fee is invoiced at the start of each calendar period; overage is added to the next invoice.">
+    <PageHeader :title="agreement?.name || 'Agreement'" info="Hours used come from time logged against this agreement. Each agreement line is invoiced at the start of each calendar period; overage on the line that time counts against is added to the next invoice.">
       <UButton v-if="agreement" variant="outline" color="neutral" :to="`/dashboard/agreements/${agreement.id}/edit`" icon="i-lucide-pencil">Edit</UButton>
       <UButton
         v-if="agreement?.status === 'draft'"
@@ -175,16 +180,17 @@ watch([id, useDataVersion()], load, { immediate: true });
       </UCard>
       <UCard>
         <dl class="space-y-2 text-sm">
-          <div class="flex justify-between gap-3"><dt class="text-dimmed">Included qty</dt><dd class="tabular-nums">{{ agreement.hours }}</dd></div>
-          <div class="flex justify-between gap-3"><dt class="text-dimmed">Period fee</dt><dd class="tabular-nums">{{ formatCurrency(agreement.fee, agreement.currency) }}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-dimmed">{{ agreement.period === "quarter" ? "Quarterly fee" : "Monthly fee" }}</dt><dd class="tabular-nums">{{ formatCurrency(periodTotal, displayCurrency) }}</dd></div>
           <template v-if="valueSummary">
-            <div class="flex justify-between gap-3"><dt class="text-dimmed">Monthly value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.monthlyValue, displayCurrency) }}</dd></div>
-            <div v-if="valueSummary.openEnded" class="flex justify-between gap-3"><dt class="text-dimmed">Annual value (open-ended)</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd></div>
-            <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3"><dt class="text-dimmed">Total agreement value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd></div>
-            <p class="text-xs text-dimmed">excludes overage</p>
+            <div v-if="agreement.period === 'quarter'" class="flex justify-between gap-3"><dt class="text-dimmed">Monthly value</dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.monthlyValue, displayCurrency) }}</dd></div>
+            <div v-if="valueSummary.openEnded" class="flex justify-between gap-3"><dt class="text-dimmed">Annual value (open-ended) <FieldHint text="12 months of the monthly value. Excludes overage." /></dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.annualValue, displayCurrency) }}</dd></div>
+            <div v-else-if="valueSummary.totalValue != null" class="flex justify-between gap-3"><dt class="text-dimmed">Total agreement value <FieldHint text="Sum of every period to the end date, with partial first and last periods prorated. Excludes overage." /></dt><dd class="tabular-nums">{{ formatCurrency(valueSummary.totalValue, displayCurrency) }}</dd></div>
           </template>
-          <div class="flex justify-between gap-3"><dt class="text-dimmed">Standard rate</dt><dd class="tabular-nums">{{ agreement.rate != null ? formatCurrency(agreement.rate, agreement.currency) : "—" }}</dd></div>
-          <div class="flex justify-between gap-3"><dt class="text-dimmed">Overage rate</dt><dd class="tabular-nums">{{ agreement.overageRate != null ? formatCurrency(agreement.overageRate, agreement.currency) : "Standard rate" }}</dd></div>
+          <template v-if="trackedLine">
+            <div class="flex justify-between gap-3"><dt class="text-dimmed">Included qty</dt><dd class="tabular-nums">{{ agreement.hours }}</dd></div>
+            <div class="flex justify-between gap-3"><dt class="text-dimmed">Overage rate</dt><dd class="tabular-nums">{{ trackedLine.overageRate !== "" && trackedLine.overageRate != null ? formatCurrency(Number(trackedLine.overageRate), displayCurrency) : "Standard rate" }}</dd></div>
+          </template>
+          <div v-else class="flex justify-between gap-3"><dt class="text-dimmed">Time entries</dt><dd class="text-right">Not billed (no line counts time)</dd></div>
           <div class="flex justify-between gap-3"><dt class="text-dimmed">Unused hours</dt><dd class="text-right">{{ rolloverLabel }}</dd></div>
         </dl>
       </UCard>
@@ -200,6 +206,37 @@ watch([id, useDataVersion()], load, { immediate: true });
         </dl>
       </UCard>
     </div>
+
+    <UCard v-if="agreement">
+      <template #header><span class="font-medium">Agreement lines</span></template>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs uppercase tracking-wide text-dimmed">
+              <th class="py-2 pr-3">Description</th>
+              <th class="py-2 pr-3 text-right">Qty</th>
+              <th class="py-2 pr-3 text-right">Standard rate</th>
+              <th class="py-2 pr-3 text-right">Line total</th>
+              <th class="py-2">Time entries</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in lines" :key="l.key" class="border-t border-default">
+              <td class="py-2 pr-3">{{ l.description || "Service" }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ l.qty }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ formatCurrency(Number(l.rate) || 0, displayCurrency) }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ formatCurrency(agreementLineTotal(l), displayCurrency) }}</td>
+              <td class="py-2 text-dimmed">{{ l.tracksTime ? `Counts here, ${l.includedQty !== "" && l.includedQty != null ? l.includedQty : l.qty} included` : "—" }}</td>
+            </tr>
+            <tr class="border-t border-default font-medium">
+              <td class="py-2 pr-3" colspan="3">{{ agreement.period === "quarter" ? "Quarterly fee" : "Monthly fee" }}</td>
+              <td class="py-2 pr-3 text-right tabular-nums">{{ formatCurrency(periodTotal, displayCurrency) }}</td>
+              <td />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </UCard>
 
     <UCard>
       <template #header><span class="font-medium">Hours by period</span></template>

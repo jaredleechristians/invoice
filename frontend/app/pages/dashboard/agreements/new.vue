@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { todayIso } from "~/utils/money";
+import { agreementLinesPayload, blankAgreementLine } from "~/utils/agreementValue";
 
 definePageMeta({ layout: "dashboard", middleware: "auth" });
 
@@ -17,33 +18,26 @@ const saving = ref(false);
 const blank = () => ({
   name: "",
   customerId: "",
-  serviceId: "",
+  lines: [blankAgreementLine(true)],
   startDate: todayIso(),
   endDate: "",
   period: "month" as const,
-  hours: 10 as number | string,
-  fee: 0 as number | string,
-  rate: "" as number | string | null,
-  overageRate: "" as number | string | null,
   currency: "",
   autoPublish: false,
   rolloverMode: "expire" as const,
   limitHours: "" as number | string | null,
 });
 const form = reactive(blank());
+const canSave = computed(() => Boolean(form.name && form.customerId && form.lines.length && form.lines.every((l) => l.serviceId)));
 
 function payload() {
   return {
     name: form.name,
     customerId: form.customerId,
-    serviceId: form.serviceId,
+    lines: agreementLinesPayload(form.lines),
     startDate: form.startDate,
     endDate: form.endDate || null,
     period: form.period,
-    hours: Number(form.hours),
-    fee: Number(form.fee),
-    rate: form.rate === "" || form.rate == null ? undefined : Number(form.rate),
-    overageRate: form.overageRate === "" || form.overageRate == null ? null : Number(form.overageRate),
     currency: form.currency || undefined,
     autoPublish: form.autoPublish,
     rolloverPolicy: {
@@ -89,8 +83,8 @@ onMounted(load);
       <template #footer>
         <div class="flex flex-wrap justify-end gap-2">
           <UButton variant="ghost" color="neutral" to="/dashboard/agreements">Cancel</UButton>
-          <UButton color="neutral" variant="outline" :loading="saving" :disabled="!form.customerId || !form.serviceId || !form.name" @click="save(false)">Save draft</UButton>
-          <UButton :loading="saving" :disabled="!form.customerId || !form.serviceId || !form.name" @click="save(true)">Save and activate</UButton>
+          <UButton color="neutral" variant="outline" :loading="saving" :disabled="!canSave" @click="save(false)">Save draft</UButton>
+          <UButton :loading="saving" :disabled="!canSave" @click="save(true)">Save and activate</UButton>
         </div>
       </template>
     </UCard>

@@ -202,17 +202,17 @@ function buildMcpServer(ctx) {
   });
 
 
-  read("list_agreements", "Agreements (retainers) with a customer, hours, fee and rollover policy.", {
+  read("list_agreements", "Agreements (retainers) with a customer, lines (billable services with qty × rate), monthly value (fee), included hours and rollover policy.", {
     customerId: ID.optional(), status: z.enum(["draft", "active", "paused", "ended"]).optional(), q: z.string().max(100).optional(), ...PAGE,
   }, async (a) => {
     const rows = await agreements.listAgreements(ctx.companyId, a);
-    return page(rows.map((x) => pick(x, ["id", "name", "status", "customerId", "customerName", "startDate", "endDate", "period", "hours", "fee", "currency", "rate", "overageRate", "autoPublish"])), a);
+    return page(rows.map((x) => pick(x, ["id", "name", "status", "customerId", "customerName", "startDate", "endDate", "period", "lines", "hours", "fee", "currency", "rate", "overageRate", "autoPublish"])), a);
   });
 
   read("get_agreement", "One agreement, including its calendar periods and hours used.", { agreementId: ID, asOf: ISO.optional() }, async (a) => {
     const { agreement, periods } = await agreements.listAgreementPeriods(ctx.companyId, a.agreementId, { asOf: a.asOf });
     return {
-      ...pick(agreement, ["id", "name", "status", "customerId", "customerName", "serviceId", "startDate", "endDate", "period", "hours", "fee", "currency", "rate", "overageRate", "autoPublish", "rolloverPolicy"]),
+      ...pick(agreement, ["id", "name", "status", "customerId", "customerName", "serviceId", "lines", "startDate", "endDate", "period", "hours", "fee", "currency", "rate", "overageRate", "autoPublish", "rolloverPolicy"]),
       periods: periods.map((p) => pick(p, ["id", "startsOn", "endsOn", "prorated", "hoursAllowed", "hoursRolledIn", "hoursUsed", "hoursRemaining", "hoursExpired", "hoursOverage", "hoursBilled", "fee", "status", "recurringInvoiceId"])),
     };
   });
@@ -277,13 +277,26 @@ function buildMcpServer(ctx) {
     agreementId: ID.optional().describe("Log this time against an agreement period; it then cannot be invoiced as ad hoc hours"),
   }, async (a) => pick(await timeEntries.createTimeEntry(...who, a), ["id", "date", "minutes", "hours", "description", "customerId", "customerName", "billable", "rate", "status", "agreementId", "periodId", "source"]));
 
-  write("create_agreement", "Create a DRAFT agreement (retainer) for a customer and a billable service. It is not activated and does not generate invoices until you activate it in the app.", {
-    name: z.string().min(1).max(200), customerId: ID, serviceId: ID.describe("Product/service id from the catalogue"),
+  const AGREEMENT_LINE = z.object({
+    serviceId: ID.describe("Product/service id from the catalogue"),
+    description: z.string().max(500).optional().describe("Defaults to the service name"),
+    qty: z.number().min(0).optional().describe("Quantity per period (default 1)"),
+    rate: z.number().min(0).optional().describe("Unit price (defaults to the service price)"),
+    includedQty: z.number().min(0).optional().describe("Time-tracked line only: hours included per period (default qty)"),
+    overageRate: z.number().min(0).optional().describe("Time-tracked line only: rate for hours beyond the included qty (default rate)"),
+    tracksTime: z.boolean().optional().describe("Time logged against the agreement counts against this line. At most one line; defaults to the first line"),
+  });
+
+  write("create_agreement", "Create a DRAFT agreement (retainer) for a customer with one or more lines (billable service, qty, rate). The monthly value is the sum of qty × rate. It is not activated and does not generate invoices until you activate it in the app. The older single-service form (serviceId, hours, fee, rate, overageRate) is still accepted and becomes one line.", {
+    name: z.string().min(1).max(200), customerId: ID,
+    lines: z.array(AGREEMENT_LINE).min(1).max(50).optional(),
+    serviceId: ID.optional().describe("Legacy: single service; use lines instead"),
     startDate: ISO, endDate: ISO.optional(), period: z.enum(["month", "quarter"]).optional(),
-    hours: z.number().min(0), fee: z.number().min(0), rate: z.number().min(0).optional(), overageRate: z.number().min(0).optional(),
+    hours: z.number().min(0).optional().describe("Legacy: included hours"), fee: z.number().min(0).optional().describe("Legacy: period fee"),
+    rate: z.number().min(0).optional().describe("Legacy: standard rate"), overageRate: z.number().min(0).optional().describe("Legacy: overage rate"),
     currency: CURRENCY.optional(), autoPublish: z.boolean().optional(),
     rolloverPolicy: z.object({ mode: z.enum(["expire", "rollover"]), limitHours: z.number().min(0).nullable().optional() }).optional(),
-  }, async (a) => pick(await agreements.createAgreement(...who, a), ["id", "name", "status", "customerId", "customerName", "serviceId", "startDate", "endDate", "period", "hours", "fee", "currency", "rate", "overageRate", "autoPublish", "rolloverPolicy", "draft"]));
+  }, async (a) => pick(await agreements.createAgreement(...who, a), ["id", "name", "status", "customerId", "customerName", "serviceId", "lines", "startDate", "endDate", "period", "hours", "fee", "currency", "rate", "overageRate", "autoPublish", "rolloverPolicy", "draft"]));
 
   write("create_draft_credit_note", "Create a DRAFT credit note linked to one published invoice. It is not published or posted until you do that in the app.", {
     invoiceId: ID, items: z.array(ITEM).min(1).max(100).optional(), issueDate: ISO.optional(), reason: z.string().max(500).optional(), notes: z.string().max(2000).optional(),
