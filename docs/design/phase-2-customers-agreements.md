@@ -1,6 +1,6 @@
 # Phase 2: Customers, agreements and time (design note)
 
-Status: decisions recorded, 13 Nov 2026 (system sender for outgoing email). Docs PR is not a merge request for production.
+Status: decisions recorded, 13 Nov 2026 (system sender from env; product domain required before reminders go live). Docs PR is not a merge request for production.
 Base: v1.6.1 on `main` (production is on 1.6.1). Phase 1 ledger is live. 1.7.0 is implemented in PR #18 (not merged).
 Roadmap: Phase 2 of the accounting roadmap — customers, agreements and time. Build on the existing customers collection; do not replace it.
 
@@ -181,22 +181,28 @@ A manual send of a scheduled step records that step and prevents the scheduler f
 
 The app still shows an overdue list (using the customer's terms). Publishing or sending a reminder email is never an unattended assistant action. Automatic reminder email (when enabled) is an app/scheduler action. Invoices and statements are not auto-emailed.
 
-1.7.0 and 1.8.0 do not implement reminders. Automatic reminders cannot be turned on until the system mailer is configured, the company has a reply-to address, and a test send has succeeded (section 3.8).
+1.7.0 and 1.8.0 do not implement reminders. Automatic reminders cannot be turned on until the system mailer is configured (including a product domain and verified from-address), the company has a reply-to address, and a test send has succeeded (section 3.8).
 
 ### 3.8 Outgoing email (1.10.0)
 
 The app does not send email today. Member invites are a copy-the-link flow ("Invites aren't emailed yet"). Invoices and statements are downloaded as PDF/HTML; emailing them is still out of scope. Sign-in is Google via Firebase Auth; the app does not send its own auth mail. There is no mailer library or SMTP/API integration in the backend.
 
-One system sender for all companies. A single verified from-address and one provider (Resend or SMTP) are configured server-side through env (for example `MAIL_FROM` plus a Resend API key or SMTP settings). Companies do not set up their own SMTP or API keys. Credentials stay in env on the server; they are never written to Firestore and never sent to the client.
+One system sender for all companies. The sender address, product branding, and provider credentials are configured server-side through env or config — never hardcoded, and never a specific existing domain. Companies do not set up their own SMTP or API keys. Credentials stay in env on the server; they are never written to Firestore and never sent to the client.
 
-- **From address:** the system address (the same for every company).
-- **From display name:** the company name, so the message appears as `"Acme" <invoices@system.example>`.
-- **Reply-To:** a `replyToEmail` field in company settings, defaulting to the owner's email. Owners and admins can change it in Settings.
-- A **test send** button in Settings (to an address the user types) uses that From and Reply-To. A successful test send is recorded for the company (`mailVerifiedAt`).
+Env / config (names are indicative):
+- `MAIL_FROM_ADDRESS` — the single verified system from-address, the same for every company.
+- `APP_NAME` — the product name used in email branding (subject, footer, and similar). This is the app's own product identity, not a host-company brand.
+- One provider: Resend or SMTP, with its credentials also in env (API key or SMTP settings).
 
-A custom sending domain per company (so mail can come from `@thecustomer.company`) is backlog, not 1.10.0. The same system mailer can later be reused to email invoices or invites; that is also not part of 1.10.0.
+The From header uses the **company name** as the display name and `MAIL_FROM_ADDRESS` as the address, for example `"Acme" <MAIL_FROM_ADDRESS>`. Product branding in the body and footer comes from `APP_NAME`. **Reply-To** is a `replyToEmail` field in company settings, defaulting to the owner's email. Owners and admins can change it in Settings.
 
-`paymentReminders.enabled` stays default **off**. It cannot be set to true until (1) the system mailer is configured in env, (2) the company has a reply-to address (the setting, or the owner-email default), and (3) a test send for that company has succeeded. If env credentials are later removed, automatic sending cannot stay on. Manual reminder send uses the same mailer and is also blocked until those conditions are met.
+A **test send** button in Settings (to an address the user types) uses that From, Reply-To, and `APP_NAME` branding. A successful test send is recorded for the company (`mailVerifiedAt`).
+
+The app will have its own product name and domain. A product domain is needed before reminders go live, so `MAIL_FROM_ADDRESS` can be a verified address on that domain. Do not hardcode any current hosting domain into the mailer or the email templates.
+
+A custom sending domain per company (so mail can come from the customer's own domain) is backlog, not 1.10.0. The same system mailer can later be reused to email invoices or invites; that is also not part of 1.10.0.
+
+`paymentReminders.enabled` stays default **off**. It cannot be set to true until (1) the system mailer is configured in env (`MAIL_FROM_ADDRESS`, `APP_NAME`, and provider credentials), (2) the from-address is verified on the product domain, (3) the company has a reply-to address (the setting, or the owner-email default), and (4) a test send for that company has succeeded. If env credentials are later removed, automatic sending cannot stay on. Manual reminder send uses the same mailer and is also blocked until those conditions are met.
 
 ## 4. Credit notes and the ledger (1.7.0)
 
@@ -267,7 +273,7 @@ Hours rolled in from the previous period are added in full; they are not prorate
 
 ## 8. Testing
 
-Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. 1.8.0 adds time entries, invoicing ad hoc hours, and the once-only billed mark (including void/delete/restore of the invoice). 1.9.0 covers proration, rollover, overage-on-the-next-invoice, and draft vs auto-publish. 1.10.0 covers the reminder schedule (default off), logging, no duplicate steps, manual send, the system mailer (env-configured), company reply-to and test send, and refusing to enable automatic reminders until reply-to is set and a test send has succeeded.
+Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` against the in-memory FakeFirestore). 1.7.0 should cover: customer terms defaulting the invoice due date; credit limit warning without a hard block; publishing a full and a partial credit note; ledger lines (debtors, income, VAT) and a trial-balance still at zero; outstanding, ageing, statements and payments caps after a credit; void/delete/restore of a credit note; rejecting a credit that exceeds remaining outstanding; rejecting void of an invoice that still has a credit note. 1.8.0 adds time entries, invoicing ad hoc hours, and the once-only billed mark (including void/delete/restore of the invoice). 1.9.0 covers proration, rollover, overage-on-the-next-invoice, and draft vs auto-publish. 1.10.0 covers the reminder schedule (default off), logging, no duplicate steps, manual send, the system mailer (`MAIL_FROM_ADDRESS` and `APP_NAME` from env), company reply-to and test send, and refusing to enable automatic reminders until the product domain/from-address are configured, reply-to is set, and a test send has succeeded.
 
 ## 9. Decisions (answered 13 Nov 2026)
 
@@ -281,7 +287,7 @@ Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` agains
    A setting on each agreement. Default remains drafts (`autoPublish: false`) unless the agreement turns auto-publish on.
 
 4. **What do payment reminders do?**
-   Reminders can email automatically on a company schedule (days before or after the due date). The setting defaults to **off**, so nothing emails customers until it is turned on. Each send is logged against the invoice; the same step is never sent twice. Also include a manual send and the overdue list. Invoices and statements stay manual. Mail is sent from one system address (configured in env, one provider: Resend or SMTP) with the company name as the From display name. Reply-To is a company setting that defaults to the owner's email. Companies do not set up their own SMTP. Automatic reminders cannot be enabled until a reply-to is set and a test send has succeeded. A custom sending domain per company is backlog.
+   Reminders can email automatically on a company schedule (days before or after the due date). The setting defaults to **off**, so nothing emails customers until it is turned on. Each send is logged against the invoice; the same step is never sent twice. Also include a manual send and the overdue list. Invoices and statements stay manual. Mail is sent from one system address (`MAIL_FROM_ADDRESS` in env, one provider: Resend or SMTP). The From display name is the company name. Product branding in the email comes from `APP_NAME` in env. Reply-To is a company setting that defaults to the owner's email. Companies do not set up their own SMTP. A product domain (and a verified from-address on it) is needed before reminders go live; do not hardcode a hosting domain. Automatic reminders cannot be enabled until a reply-to is set and a test send has succeeded. A custom sending domain per company is backlog.
 
 5. **Credit limit: warn or block publish?**
    Warn; owners and admins can still publish. This is what PR #18 already does. No change to 1.7.0.
@@ -299,7 +305,7 @@ Backend tests run in `node:22-alpine` on the Mac, as today (`node --test` agains
 | **1.7.0** | Credit notes (ledger reversals, apply to one invoice, void/delete/restore, PDF). Customer payment terms and credit limits. Debtors age analysis extended (credits + limits). Statements include credits. | PR #18. Uses decided behaviour for questions 5 and 6. No reminders. No catch-up/backfill (credits only apply when a user issues one). |
 | **1.8.0** | Time entries (internal, manual or assistant). Ad hoc billable hours, invoice them, mark billed so they cannot be billed twice. | Does not depend on agreement code. |
 | **1.9.0** | Agreements, recurring invoices, agreement periods (hours used and remaining, proration, rollover, overage on the next invoice), hours reports. | Decisions 1, 2, 3 and 7 are recorded above. |
-| **1.10.0** | Payment reminders: overdue list, manual send, company schedule default off, log each send, no duplicate steps. One system sender (env, Resend or SMTP) for all companies; From display name is the company name; Reply-To is a company setting defaulting to the owner's email; test send in Settings. Automatic reminders stay disabled until reply-to is set and a test send has succeeded. Custom sending domain per company is backlog. | Decision 4 is recorded above. The app does not send email today (invites are copy-link; invoices are not emailed). |
+| **1.10.0** | Payment reminders: overdue list, manual send, company schedule default off, log each send, no duplicate steps. One system sender for all companies, from env (`MAIL_FROM_ADDRESS`, `APP_NAME`, Resend or SMTP). From display name is the company name. Reply-To is a company setting defaulting to the owner's email. Test send in Settings. A product domain is required before reminders go live. Automatic reminders stay disabled until reply-to is set and a test send has succeeded. Custom sending domain per company is backlog. | Decision 4 is recorded above. The app does not send email today (invites are copy-link; invoices are not emailed). |
 
 Do not merge or deploy a slice until Jared authorises it. Firestore rules do not need new match blocks for these collections (the existing catch-all already allows member reads and denies client writes); any new composite indexes must be real composites, not single-field ones.
 
